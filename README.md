@@ -13,6 +13,8 @@
 
 API 사용법과 분석 규칙: [CSV 업로드 API](docs/csv-upload-api.md).
 
+API 호출 없이 준비한 추론 입력·응답 검증: [의미 추론 계약](docs/semantic-inference.md).
+
 다음 작업을 위한 현황과 합의 사항: [작업 인수인계](docs/handoff.md).
 
 ## 개발 환경 실행
@@ -31,6 +33,12 @@ API 상태 확인은 Django 응답 여부만 확인하며 DB 상태를 보장하
 현재 Compose는 소스 변경이 반영되는 **로컬 개발용**입니다. 공개 배포용 서버, 정적 파일 서빙, HTTPS 등은 추후 구성합니다. 예제 환경변수는 개발용이며 실제 비밀값과 업로드 데이터는 커밋하지 않습니다.
 
 종료: `docker compose down`. DB는 named volume에 보존됩니다. `docker compose down -v`는 DB를 포함한 볼륨 데이터를 삭제하므로 초기화가 필요할 때만 사용합니다.
+
+### Claude API 키 설정
+
+루트 `.env`의 `ANTHROPIC_API_KEY=` 뒤에 키를 입력합니다. `.env`와 `.env.*`는 Git에서 제외하며, `.env.example`에는 실제 키를 넣지 않습니다.
+
+Docker Compose는 이 값을 백엔드 환경변수로 전달하고 Django는 `settings.ANTHROPIC_API_KEY`로 읽습니다. 키 변경 후 `docker compose up -d --force-recreate backend`로 반영합니다. 프론트엔드에는 키를 전달하지 않습니다. 키가 비어 있어도 기존 CSV 기능은 동작하며, 현재 Claude API 호출은 구현되지 않았습니다.
 
 프론트엔드 의존성 변경 후에는 `docker compose run --rm --no-deps frontend npm ci`로 의존성 볼륨을 갱신하고 다시 빌드합니다.
 

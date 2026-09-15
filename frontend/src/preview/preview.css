@@ -1,0 +1,37 @@
+.service-runtime { border-top: 1px solid #dce3ee; margin-top: 20px; padding-top: 20px; }
+.service-runtime nav { display: flex; gap: 8px; margin-bottom: 20px; }
+.service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 20px; }
+.service-card { border: 1px solid #dce3ee; border-radius: 12px; overflow: hidden; min-width: 0; }
+.service-image { display: block; width: 100%; height: 180px; object-fit: cover; background: #edf2f8; }
+.service-image-empty { display: grid; place-items: center; color: #55657a; }
+.service-card-body { padding: 18px; }
+.service-card h3 { margin: 10px 0; font-size: 1.05rem; }
+.service-title-button { padding: 0; min-height: 0; color: #1e293b; background: transparent; text-align: left; overflow-wrap: anywhere; }
+.service-title-button:hover { background: transparent; color: #2457c5; text-decoration: underline; }
+.service-badge { display: inline-block; border-radius: 5px; padding: 3px 9px; background: #edf2fc; color: #2457c5; font-size: .85rem; }
+.service-fields { margin: 12px 0 0; }
+.service-fields > div { padding: 10px 0; border-bottom: 1px solid #edf2f8; }
+.service-fields dd { font-size: .95rem; font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; }
+.service-fields details p { margin-top: 12px; }
+.service-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 24px; }
+.service-detail > div { min-width: 0; }
+.service-detail .service-image { height: 260px; border-radius: 10px; }
+.service-detail h3 { font-size: 1.4rem; margin: 10px 0; overflow-wrap: anywhere; }
+.service-actions { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
+@media (max-width: 640px) { .service-detail { grid-template-columns: 1fr; } }
+.service-charts { margin-bottom: 28px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }
+.service-chart { margin: 0; padding: 20px; border: 1px solid #dce3ee; border-radius: 12px; min-width: 0; }
+.service-chart figcaption { font-weight: 650; margin-bottom: 18px; }
+.chart-values { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.chart-value-label { display: flex; justify-content: space-between; gap: 16px; font-size: .9rem; }
+.chart-value-label > span { overflow-wrap: anywhere; min-width: 0; }
+.chart-value-label strong { flex-shrink: 0; font-weight: 600; }
+.chart-value-label small { display: inline; font-weight: 400; }
+.chart-value-label i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; }
+.chart-track { height: 12px; background: #edf2f8; border-radius: 4px; margin-top: 6px; overflow: hidden; }
+.chart-track > div { height: 100%; border-radius: 4px; }
+.chart-donut { width: 156px; height: 156px; border-radius: 50%; margin: 0 auto 24px; display: grid; place-items: center; }
+.chart-donut > div { width: 108px; height: 108px; border-radius: 50%; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.chart-donut strong { font-size: 1.8rem; }
+.chart-donut span { color: #55657a; font-size: .85rem; }

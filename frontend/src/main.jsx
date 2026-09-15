@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import ServicePreview from './preview/ServicePreview';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -131,6 +132,7 @@ function App() {
       {error && <div className="error" role="alert">{error}</div>}
       <div role="status" aria-live="polite">{busy ? '파일을 읽고 있어요. 잠시 기다려 주세요.' : upload ? '업로드가 완료되었습니다.' : ''}</div>
       {upload && <Preview upload={upload} />}
+      {upload && <ServicePreview key={upload.id} report={upload.analysis} />}
       {upload && <ColumnAnalysis report={upload.analysis} />}
     </main>
   );

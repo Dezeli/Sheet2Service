@@ -20,6 +20,7 @@ dist/
 coverage/
 
 # Runtime data (never commit uploaded spreadsheets)
+/*.csv
 /data/
 /backend/media/
 /backend/staticfiles/
