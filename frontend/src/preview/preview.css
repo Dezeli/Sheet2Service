@@ -1,5 +1,12 @@
 .service-runtime { border-top: 1px solid #dce3ee; margin-top: 20px; padding-top: 20px; }
-.service-runtime nav { display: flex; gap: 8px; margin-bottom: 20px; }
+.service-preview-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; color: #55657a; font-size: .88rem; }
+.service-preview-meta span { border: 1px solid #dce3ee; border-radius: 5px; padding: 4px 8px; }
+.service-view-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 8px; margin-bottom: 20px; }
+.service-view-tabs button { display: grid; gap: 2px; justify-items: start; min-height: 64px; padding: 10px 12px; border: 1px solid #dce3ee; background: white; color: #1e293b; text-align: left; }
+.service-view-tabs button:hover, .service-view-tabs button[aria-current="page"] { border-color: #2457c5; background: #edf2fc; }
+.service-view-tabs button span { color: #55657a; font-size: .82rem; font-weight: 400; overflow-wrap: anywhere; }
+.service-back-button { margin-bottom: 16px; background: #edf2f8; color: #1e293b; }
+.service-back-button:hover { background: #dce3ee; }
 .service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 20px; }
 .service-card { border: 1px solid #dce3ee; border-radius: 12px; overflow: hidden; min-width: 0; }
 .service-image { display: block; width: 100%; height: 180px; object-fit: cover; background: #edf2f8; }
@@ -9,6 +16,11 @@
 .service-title-button { padding: 0; min-height: 0; color: #1e293b; background: transparent; text-align: left; overflow-wrap: anywhere; }
 .service-title-button:hover { background: transparent; color: #2457c5; text-decoration: underline; }
 .service-badge { display: inline-block; border-radius: 5px; padding: 3px 9px; background: #edf2fc; color: #2457c5; font-size: .85rem; }
+.service-groups { display: grid; gap: 28px; }
+.service-group { min-width: 0; }
+.service-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 14px; border-bottom: 1px solid #dce3ee; padding-bottom: 10px; }
+.service-group-heading h3 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.service-group-heading span { flex-shrink: 0; color: #55657a; font-size: .9rem; }
 .service-fields { margin: 12px 0 0; }
 .service-fields > div { padding: 10px 0; border-bottom: 1px solid #edf2f8; }
 .service-fields dd { font-size: .95rem; font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -18,6 +30,12 @@
 .service-detail .service-image { height: 260px; border-radius: 10px; }
 .service-detail h3 { font-size: 1.4rem; margin: 10px 0; overflow-wrap: anywhere; }
 .service-actions { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
+.service-table-scroll { overflow-x: auto; border: 1px solid #dce3ee; border-radius: 10px; }
+.service-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.service-table th, .service-table td { padding: 12px 14px; border-bottom: 1px solid #edf2f8; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.service-table th { background: #f8fafc; font-size: .9rem; color: #55657a; }
+.service-table tr:last-child td { border-bottom: 0; }
+.service-table details p { margin-top: 10px; }
 @media (max-width: 640px) { .service-detail { grid-template-columns: 1fr; } }
 .service-charts { margin-bottom: 28px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }

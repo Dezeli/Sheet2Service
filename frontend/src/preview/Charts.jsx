@@ -14,14 +14,14 @@ function Chart({ config, records }) {
   });
   return <figure className="service-chart">
     <figcaption>{config.title}</figcaption>
-    {!records.length ? <p className="muted">집계할 데이터가 없습니다.</p> : <>
+    {!records.length ? <p className="muted">No data to aggregate.</p> : <>
       {config.type === 'donut' && <div className="chart-donut" aria-hidden="true" style={{ background: `conic-gradient(${stops.join(',')})` }}>
-        <div><strong>{records.length}</strong><span>항목</span></div>
+        <div><strong>{records.length}</strong><span>items</span></div>
       </div>}
-      <ul className="chart-values" aria-label={`${config.title} 집계 결과`}>
+      <ul className="chart-values" aria-label={`${config.title} aggregate results`}>
         {groups.map((item, index) => <li key={index}>
           <div className="chart-value-label"><span><i aria-hidden="true" style={{ background: colors[index] }} />{item.label}</span>
-            <strong>{item.count}개 <small>({(item.ratio * 100).toFixed(1)}%)</small></strong></div>
+            <strong>{item.count} <small>({(item.ratio * 100).toFixed(1)}%)</small></strong></div>
           {config.type === 'bar' && <div className="chart-track" aria-hidden="true"><div style={{ width: `${item.count / max * 100}%`, background: colors[index] }} /></div>}
         </li>)}
       </ul>
@@ -31,8 +31,8 @@ function Chart({ config, records }) {
 
 export default function Charts({ configs, records }) {
   if (!configs?.length) return null;
-  return <section className="service-charts" aria-label="서비스 분포">
-    <p className="muted">현재 Preview의 {records.length}개 항목 기준입니다. 빈 값도 별도 분류로 포함합니다.</p>
+  return <section className="service-charts" aria-label="Service distribution">
+    <p className="muted">Based on the {records.length} items currently loaded in Preview. Empty values are counted as a separate group.</p>
     <div className="chart-grid">{configs.map((config, index) => <Chart key={index} config={config} records={records} />)}</div>
   </section>;
 }

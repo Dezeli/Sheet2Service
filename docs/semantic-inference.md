@@ -1,6 +1,6 @@
 # 의미 추론 계약 v1 (로컬 준비 단계)
 
-`backend/uploads/inference.py`는 기존 분석 JSON을 입력으로 받아 추론용 메시지를 만들고, 가짜 또는 추후 받은 응답을 검증합니다. 네트워크·키 접근·DB 저장·API 엔드포인트는 없습니다. 결과는 사용자 검토용 후보이며 Preview 설정이나 확정된 데이터 모델이 아닙니다.
+`backend/uploads/inference.py`는 기존 분석 JSON을 입력으로 받아 추론용 메시지를 만들고, 가짜 또는 추후 받은 응답을 검증합니다. 네트워크·키 접근·DB 저장·API 엔드포인트는 없습니다. 현재 결과는 사용자 검토용 Preview 설정 후보이며 확정된 서비스가 아닙니다. Preview 설정 계약은 `docs/preview-config.md`와 `backend/uploads/preview_config.py`에 고정합니다.
 
 ## 입력
 
@@ -18,14 +18,13 @@
 | 필드 | 내용 |
 | --- | --- |
 | `schema_version` | 정수 `1` |
-| `summary` | 데이터 의미 요약 |
-| `entities` | 엔티티 ID·이름·기존 컬럼 ID 목록·근거 (최대 30개) |
-| `relations` | 양쪽 엔티티 ID·관계 종류·근거 컬럼 ID·설명 (최대 60개) |
+| `summary` | Preview 후보 요약 |
+| `preview` | `docs/preview-config.md`의 Preview 설정 v1 |
 | `questions` | 사용자 확인 질문·관련 컬럼 ID·질문 이유 (최대 30개) |
 
-관계 종류는 `one_to_one`, `one_to_many`, `many_to_one`, `many_to_many`, `unknown`입니다. 관계의 컬럼 ID는 양쪽 엔티티 중 하나에 속하는 근거 컬럼이며, 실행 가능한 조인 키를 뜻하지 않습니다. v1은 서로 다른 엔티티 사이의 후보만 다룹니다.
+현재 사용 가능한 템플릿은 `cards`, `detail`, `table`, `grouped`입니다. `map`, `calendar`, `form`은 카탈로그에는 있지만 Claude 출력으로는 허용하지 않습니다.
 
-`validate_response(raw, inference_input)`는 순수 JSON 문자열만 받고 크기·필수 필드·추가 필드·타입·배열 수·문자열 길이·중복 ID·잘못된 참조를 검사합니다. 중복 JSON 키, NaN, 코드 펜스, 존재하지 않는 컬럼/엔티티를 거절합니다. 의미의 정확성·관계의 실제 성립 여부는 검증하지 못하므로 사용자 확인이 필요합니다. 자동 보정·재요청은 없습니다.
+`validate_response(raw, inference_input)`는 순수 JSON 문자열만 받고 크기·필수 필드·추가 필드·타입·배열 수·문자열 길이·중복 ID·잘못된 참조를 검사합니다. 중복 JSON 키, NaN, 코드 펜스, 존재하지 않는 컬럼/페이지 참조를 거절합니다. Preview 설정은 `validate_preview_config`로 다시 검증합니다. 의미의 정확성·가장 좋은 화면 구성 여부는 검증하지 못하므로 사용자 확인이 필요합니다. 자동 보정·재요청은 없습니다.
 
 ## 로컬 검증
 

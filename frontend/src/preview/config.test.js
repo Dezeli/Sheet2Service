@@ -10,8 +10,16 @@ const config = () => ({ version: 1, title: '테스트', pages: [
 
 test('catalog has seven templates and the card/detail pair validates', () => {
   assert.equal(Object.keys(templates).length, 7);
-  assert.equal(Object.values(templates).filter((t) => t.ready).length, 2);
+  assert.equal(Object.values(templates).filter((t) => t.ready).length, 4);
   assert.deepEqual(validateConfig(config(), columns), config());
+});
+
+test('grouped pages validate with grouping and detail links', () => {
+  const value = { version: 1, title: '테스트', pages: [
+    { id: 'groups', title: '그룹', template: 'grouped', detailPage: 'detail', bindings: { title: 'column_1', group: 'column_1', fields: ['column_1'] } },
+    { id: 'detail', title: '상세', template: 'detail', bindings: { title: 'column_1' } },
+  ] };
+  assert.deepEqual(validateConfig(value, columns), value);
 });
 
 test('reject unknown templates, missing bindings, dangling links and extra code', () => {
@@ -30,11 +38,11 @@ test('reject unknown templates, missing bindings, dangling links and extra code'
   }
 });
 
-test('record adapter preserves values and limits records without changing the report', () => {
+test('record adapter preserves preview rows without changing the report', () => {
   const report = { columns, preview: Array.from({ length: 7 }, (_, i) => ({ row_number: i + 2, values: [i === 0 ? '001' : '<script>text</script>'] })) };
   const before = structuredClone(report);
   const records = previewRecords(report);
-  assert.equal(records.length, 5);
+  assert.equal(records.length, 7);
   assert.equal(records[0].values.column_1, '001');
   assert.equal(records[1].values.column_1, '<script>text</script>');
   assert.deepEqual(report, before);
@@ -45,10 +53,13 @@ test('URLs permit only explicit http(s) addresses without credentials', () => {
   assert.equal(safeWebUrl('https://example.com/info'), 'https://example.com/info');
 });
 
-test('example mapping requires unique matching headers', () => {
+
+test('development example mapping uses the first supported columns', () => {
   assert.throws(() => reservationConfig(columns));
-  const names = ['서비스명', '서비스상태', '이미지경로', '장소명', '소분류명', '결제방법', '바로가기URL', '전화번호', '상세정보'];
-  const source = names.map((name, i) => ({ id: `column_${i + 1}`, name }));
-  assert.equal(reservationConfig(source).pages[0].bindings.title, 'column_1');
-  assert.throws(() => reservationConfig([...source, { id: 'extra', name: '서비스명' }]));
+  const source = Array.from({ length: 9 }, (_, i) => ({ id: `column_${i + 1}`, name: `column ${i + 1}` }));
+  const result = reservationConfig(source);
+  assert.equal(result.pages[0].bindings.title, 'column_1');
+  assert.equal(result.pages[1].template, 'table');
+  assert.equal(result.pages[2].template, 'grouped');
+  assert.equal(result.pages[2].bindings.group, 'column_5');
 });
