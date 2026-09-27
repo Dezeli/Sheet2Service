@@ -39,6 +39,7 @@ class AnalysisTests(SimpleTestCase):
         self.assertEqual(report["row_count"], 25)
         self.assertEqual(len(report["preview"]), 20)
         self.assertEqual(report["column_count"], 2)
+        self.assertEqual(len(report["inference_samples"]), 10)
 
     def test_header_only_and_formula(self):
         self.assertEqual(analyze(b'name\n')["row_count"], 0)
@@ -113,6 +114,39 @@ class UploadAPITests(TestCase):
         other = APIClient()
         self.assertEqual(other.get(url).status_code, 404)
         self.assertEqual(other.get(url + 'original/').status_code, 404)
+
+    def test_rows_endpoint_pages_all_nonblank_records_in_analysis_order(self):
+        lines = ['name,value'] + [f'item-{index},{index}' for index in range(1, 11)]
+        lines += [''] + [f'item-{index},{index}' for index in range(11, 46)]
+        upload = self.post_file(('\n'.join(lines) + '\n').encode()).data
+        self.assertEqual(upload['analysis']['row_count'], 45)
+        url = f"/api/uploads/{upload['id']}/rows/"
+        first = self.client.get(url).data
+        second = self.client.get(url + '?page=2').data
+        third = self.client.get(url + '?page=3').data
+        self.assertEqual(first['rows'], upload['analysis']['preview'])
+        self.assertEqual((len(first['rows']), len(second['rows']), len(third['rows'])), (20, 20, 5))
+        self.assertEqual(second['rows'][0]['row_number'], 23)
+        self.assertEqual(third['rows'][-1]['values'][0], 'item-45')
+        self.assertFalse(third['has_next'])
+        self.assertEqual(self.client.get(url + '?page=4').status_code, 400)
+        self.assertEqual(APIClient().get(url).status_code, 404)
+
+    def test_chart_counts_cover_all_rows_and_respect_session(self):
+        lines = ['name,category'] + [f'item-{index},{"A" if index <= 20 else "B"}'
+                                    for index in range(1, 46)] + ['item-46,', 'item-47,   ']
+        upload = self.post_file(('\n'.join(lines) + '\n').encode()).data
+        url = f"/api/uploads/{upload['id']}/chart-counts/?columns=2"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.data['row_count'], 47)
+        summary = response.data['columns']['column_2']
+        self.assertEqual(summary['total'], 47)
+        self.assertEqual([(item['label'], item['count']) for item in summary['groups']],
+                         [('B', 25), ('A', 20), ('값 없음', 2)])
+        self.assertEqual(sum(item['count'] for item in summary['groups']), 47)
+        self.assertEqual(self.client.get(url + ',3').status_code, 400)
+        self.assertEqual(APIClient().get(url).status_code, 404)
 
     def test_csrf_required_and_invalid_upload_not_saved(self):
         response = self.client.post('/api/uploads/', {'file': SimpleUploadedFile('x.csv', b'a\n1')}, format='multipart')

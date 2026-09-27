@@ -32,6 +32,7 @@ class InferenceApiTests(APITestCase):
         self.assertEqual(response.data["automatic_retries"], 0)
         self.assertFalse(response.data["transmitted_data"]["original_csv_file"])
         self.assertEqual(response.data["transmitted_data"]["column_count"], 2)
+        self.assertEqual(response.data["transmitted_data"]["sample_count"], 2)
         self.assertEqual(ModelCall.objects.count(), 0)
 
     @patch("uploads.claude._post_message")
@@ -48,10 +49,10 @@ class InferenceApiTests(APITestCase):
 
     @patch("uploads.claude._post_message")
     def test_approved_post_records_and_validates_result(self, post_message):
-        post_message.return_value = (200, {"request-id": "req_synthetic"}, """
-        {"content":[{"type":"text","text":"{\\"schema_version\\":1,\\"summary\\":\\"목록 Preview\\",\\"preview\\":{\\"version\\":1,\\"title\\":\\"서비스\\",\\"pages\\":[{\\"id\\":\\"services\\",\\"template\\":\\"table\\",\\"title\\":\\"서비스\\",\\"bindings\\":{\\"fields\\":[\\"column_1\\",\\"column_2\\"]}}]},\\"questions\\":[]}"}],
-         "usage":{"input_tokens":12,"output_tokens":8}}
-        """)
+        provider = {"content": [{"type": "text", "text": json.dumps({
+            "version": 2, "views": [{"template": "table", "columns": [1, 2]}],
+        })}], "usage": {"input_tokens": 12, "output_tokens": 8}}
+        post_message.return_value = (200, {"request-id": "req_synthetic"}, json.dumps(provider))
         response = self.client.post(
             f"/api/uploads/{self.upload_id}/inference/",
             {"approved": True, "approval_note": "테스트에서 1회 호출 승인"},
@@ -60,39 +61,21 @@ class InferenceApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["status"], ModelCall.Status.SUCCEEDED)
-        self.assertEqual(response.data["result"]["preview"]["pages"][0]["template"], "table")
+        self.assertEqual(response.data["result"]["preview"]["views"][0]["template"], "table")
+        self.assertFalse(response.data["result"]["used_fallback"])
         record = ModelCall.objects.get()
         self.assertEqual(record.provider_request_id, "req_synthetic")
         self.assertEqual(record.usage["input_tokens"], 12)
+        self.assertEqual(record.request_body["output_config"]["format"]["schema"]["properties"]["version"]["enum"], [2])
 
     @patch("uploads.claude._post_message")
-    def test_approved_post_normalizes_provider_noise_before_returning_preview(self, post_message):
+    def test_approved_post_normalizes_duplicates_before_returning_preview(self, post_message):
         preview = {
-            "schema_version": 1,
-            "summary": "Preview candidate",
-            "preview": {
-                "version": 1,
-                "title": "Services",
-                "pages": [
-                    {
-                        "id": "services",
-                        "template": "grouped",
-                        "title": "Groups",
-                        "bindings": {
-                            "title": "column_1",
-                            "group": "column_2,",
-                            "phone": "column_2",
-                        },
-                    },
-                    {
-                        "id": "detail",
-                        "template": "detail",
-                        "title": "Detail",
-                        "bindings": {"title": "column_1", "group": "column_2"},
-                    },
-                ],
-            },
-            "questions": [],
+            "version": 2,
+            "views": [
+                {"template": "cards", "titleColumn": 1, "fields": [2, 2, 1]},
+                {"template": "cards", "titleColumn": 1, "fields": [2, 1]},
+            ],
         }
         provider_body = {
             "content": [{"type": "text", "text": json.dumps(preview)}],
@@ -106,29 +89,30 @@ class InferenceApiTests(APITestCase):
             HTTP_X_CSRFTOKEN=self.token,
         )
         self.assertEqual(response.status_code, 200)
-        pages = response.data["result"]["preview"]["pages"]
-        self.assertEqual(pages[0]["bindings"], {"title": "column_1", "group": "column_2"})
-        self.assertEqual(pages[1]["bindings"], {"title": "column_1"})
+        views = response.data["result"]["preview"]["views"]
+        self.assertEqual(views, [{"template": "cards", "titleColumn": 1, "fields": [2]}])
         record = ModelCall.objects.get(provider_request_id="req_noisy")
         self.assertEqual(record.status, ModelCall.Status.SUCCEEDED)
-        self.assertEqual(record.parsed_result["preview"]["pages"], pages)
+        self.assertEqual(record.parsed_result["preview"]["views"], views)
 
     @patch("uploads.claude._post_message")
-    def test_validation_failure_preserves_provider_response(self, post_message):
-        post_message.return_value = (200, {"request-id": "req_invalid"}, """
-        {"content":[{"type":"text","text":"{\\"schema_version\\":1,\\"summary\\":\\"broken"}],
-         "usage":{"input_tokens":7,"output_tokens":3}}
-        """)
+    def test_invalid_preview_uses_fallback_and_preserves_provider_response(self, post_message):
+        provider = {"content": [{"type": "text", "text": '{"version":2,"views":[{"template":"table","columns":[99]}]}' }],
+                    "usage": {"input_tokens": 7, "output_tokens": 3}}
+        post_message.return_value = (200, {"request-id": "req_invalid"}, json.dumps(provider))
         response = self.client.post(
             f"/api/uploads/{self.upload_id}/inference/",
             {"approved": True, "approval_note": "검증 실패 보존 테스트"},
             format="json",
             HTTP_X_CSRFTOKEN=self.token,
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["result"]["used_fallback"])
+        self.assertEqual(response.data["result"]["preview"]["views"],
+                         [{"template": "table", "columns": [1, 2]}])
         record = ModelCall.objects.get()
         self.assertEqual(record.provider_request_id, "req_invalid")
         self.assertEqual(record.http_status, 200)
         self.assertEqual(record.usage["input_tokens"], 7)
-        self.assertIn("broken", record.response_body)
-        self.assertEqual(record.error_type, "InferenceError")
+        self.assertIn("99", record.response_body)
+        self.assertTrue(record.validation_error)

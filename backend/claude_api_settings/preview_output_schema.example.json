@@ -1,0 +1,85 @@
+{
+  "type": "object",
+  "properties": {
+    "version": { "type": "integer", "enum": [2] },
+    "views": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "template": { "type": "string", "enum": ["cards"] },
+              "titleColumn": { "$ref": "#/$defs/titleColumn" },
+              "subtitleColumn": { "$ref": "#/$defs/subtitleColumn" },
+              "imageColumn": { "$ref": "#/$defs/imageColumn" },
+              "badgeColumn": { "$ref": "#/$defs/badgeColumn" },
+              "fields": { "$ref": "#/$defs/fieldList" },
+              "charts": { "$ref": "#/$defs/charts" }
+            },
+            "required": ["template", "titleColumn", "fields"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "template": { "type": "string", "enum": ["table"] },
+              "columns": { "$ref": "#/$defs/tableColumns" },
+              "charts": { "$ref": "#/$defs/charts" }
+            },
+            "required": ["template", "columns"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "template": { "type": "string", "enum": ["grouped"] },
+              "groupColumn": { "$ref": "#/$defs/groupColumn" },
+              "titleColumn": { "$ref": "#/$defs/titleColumn" },
+              "subtitleColumn": { "$ref": "#/$defs/subtitleColumn" },
+              "badgeColumn": { "$ref": "#/$defs/badgeColumn" },
+              "fields": { "$ref": "#/$defs/fieldList" },
+              "charts": { "$ref": "#/$defs/charts" }
+            },
+            "required": ["template", "groupColumn", "titleColumn", "fields"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": ["version", "views"],
+  "additionalProperties": false,
+  "$defs": {
+    "allColumns": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 7, 8] },
+    "titleColumn": { "type": "integer", "enum": [1, 8] },
+    "subtitleColumn": { "type": "integer", "enum": [3, 8] },
+    "imageColumn": { "type": "integer", "enum": [5] },
+    "badgeColumn": { "type": "integer", "enum": [2, 7] },
+    "groupColumn": { "type": "integer", "enum": [2, 7] },
+    "chartGroupColumn": { "type": "integer", "enum": [2, 7] },
+    "fieldList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/allColumns" }
+    },
+    "tableColumns": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/allColumns" }
+    },
+    "charts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["bar", "donut"] },
+          "groupColumn": { "$ref": "#/$defs/chartGroupColumn" },
+          "aggregate": { "type": "string", "enum": ["count"] }
+        },
+        "required": ["type", "groupColumn", "aggregate"],
+        "additionalProperties": false
+      }
+    }
+  }
+}

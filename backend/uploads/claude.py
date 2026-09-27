@@ -6,8 +6,10 @@ import urllib.request
 from django.conf import settings
 
 from .call_records import finish_call, start_call
-from .inference import InferenceError, build_input, build_prompt, json_text, validate_response
+from .inference import InferenceError, json_text
 from .models import ModelCall
+from .preview_request_v2 import build_input, build_prompt
+from .preview_response_v2 import prepare_preview_response
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
@@ -17,8 +19,8 @@ DEFAULT_MAX_TOKENS = 4000
 TIMEOUT_SECONDS = 60
 
 
-def inference_request_body(report, *, include_samples=True):
-    prompt = build_prompt(report, include_samples=include_samples)
+def inference_request_body(report):
+    prompt = build_prompt(report)
     return {
         "model": getattr(settings, "ANTHROPIC_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL,
         "max_tokens": getattr(settings, "ANTHROPIC_MAX_TOKENS", DEFAULT_MAX_TOKENS),
@@ -28,15 +30,26 @@ def inference_request_body(report, *, include_samples=True):
     }
 
 
-def approval_summary(upload, *, include_samples=True):
-    inference_input = build_input(upload.analysis, include_samples=include_samples)
-    request_body = inference_request_body(upload.analysis, include_samples=include_samples)
+def approval_summary(upload):
+    inference_input = build_input(upload.analysis)
+    request_body = inference_request_body(upload.analysis)
+    request_bytes = len(json_text(request_body).encode("utf-8"))
+    if request_body["model"] == "claude-sonnet-5":
+        # Approximate input tokens from UTF-8 size; provider usage is authoritative.
+        low = (request_bytes / 3 * 2 + request_body["max_tokens"] * 10) / 1_000_000
+        high = (request_bytes * 0.75 * 2 + request_body["max_tokens"] * 10) / 1_000_000
+        cost_note = (f"2026-09-27 확인한 Sonnet 5 기본 단가(입력 $2/백만 토큰, 출력 $10/백만 토큰)와 "
+                     f"최대 출력 기준 예상 비용은 약 US${low:.3f}~${high:.3f}입니다. "
+                     "입력 토큰 수는 본문 크기로 추정했으며 실제 비용이나 상한은 아닙니다.")
+    else:
+        cost_note = "현재 모델의 단가를 확인한 뒤 예상 비용을 계산해야 합니다."
     return {
         "requires_approval": True,
         "approved": False,
         "purpose": "CSV 분석 결과를 바탕으로 서비스 Preview 설정 JSON 후보를 생성합니다.",
         "provider": "anthropic",
         "model": request_body["model"],
+        "pricing_estimate_available": request_body["model"] == "claude-sonnet-5",
         "planned_call_count": 1,
         "automatic_retries": 0,
         "max_output_tokens": request_body["max_tokens"],
@@ -45,14 +58,16 @@ def approval_summary(upload, *, include_samples=True):
             "original_csv_file": False,
             "row_count": inference_input["row_count"],
             "column_count": len(inference_input["columns"]),
-            "columns": [column["id"] for column in inference_input["columns"]],
-            "samples_included": inference_input["sampling"]["included"],
-            "sample_count": len(inference_input["samples"]),
+            "columns": [column["number"] for column in inference_input["columns"]],
+            "samples_included": bool(inference_input["sample_rows"]),
+            "sample_count": len(inference_input["sample_rows"]),
             "max_sample_rows": inference_input["sampling"]["max_rows"],
             "max_text_chars": inference_input["sampling"]["max_text_chars"],
-            "request_bytes": len(json_text(request_body).encode("utf-8")),
+            "truncated_value_count": len(inference_input["sampling"]["truncated_paths"]),
+            "sampling_strategy": inference_input["sampling"]["strategy"],
+            "request_bytes": request_bytes,
         },
-        "cost_note": "실제 비용은 Claude 응답 usage의 입력/출력 토큰에 따라 정해집니다. 호출은 승인 후 1회만 실행합니다.",
+        "cost_note": cost_note,
     }
 
 
@@ -90,9 +105,8 @@ def _post_message(request_body):
         raise InferenceError(str(exc.reason)) from exc
 
 
-def run_inference(upload, *, approval_note, approved_at, include_samples=True):
-    inference_input = build_input(upload.analysis, include_samples=include_samples)
-    request_body = inference_request_body(upload.analysis, include_samples=include_samples)
+def run_inference(upload, *, approval_note, approved_at):
+    request_body = inference_request_body(upload.analysis)
     call = start_call(
         upload=upload,
         purpose="서비스 Preview 설정 JSON 후보 생성",
@@ -121,7 +135,7 @@ def run_inference(upload, *, approval_note, approved_at, include_samples=True):
                 error_message=response_json.get("error", {}).get("message", ""),
             )
             raise InferenceError("Claude API 호출이 실패했습니다.")
-        parsed = validate_response(raw_output, inference_input)
+        parsed = prepare_preview_response(raw_output, upload.analysis)
         finish_call(
             call,
             status=ModelCall.Status.SUCCEEDED,
@@ -129,6 +143,7 @@ def run_inference(upload, *, approval_note, approved_at, include_samples=True):
             http_status=http_status,
             provider_request_id=headers.get("request-id", ""),
             parsed_result=parsed,
+            validation_error=parsed["validation_error"],
             usage=usage,
         )
         return call, parsed

@@ -55,4 +55,11 @@ td summary { min-width: 200px; }
 .type-badge { display: inline-block; padding: 3px 8px; border-radius: 5px; background: #edf2f8; white-space: nowrap; }
 .type-mixed { background: #fff4d8; color: #765011; }
 .column-issues { margin: 8px 0 0; padding-left: 18px; color: #765011; font-size: .85rem; }
+.template-catalog { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+.template-catalog-item { border: 1px solid #dce3ee; border-radius: 10px; padding: 16px; }
+.template-catalog-item h3 { margin: 0; font-size: 1rem; }
+.template-catalog-item p { margin: 8px 0 0; }
+.template-ready, .template-planned { border-radius: 5px; padding: 3px 8px; font-size: .8rem; white-space: nowrap; }
+.template-ready { background: #e3f5ef; color: #116149; }
+.template-planned { background: #edf2f8; color: #55657a; }
 @media (max-width: 640px) { main { padding: 24px 14px 48px; } .panel { padding: 18px; } fieldset { align-items: stretch; flex-direction: column; } .metrics { gap: 8px; } .metrics > div { padding: 10px; } dd { font-size: 1.1rem; } }

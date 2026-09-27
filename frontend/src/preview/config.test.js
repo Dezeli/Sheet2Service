@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { templates, validateConfig, previewRecords, safeWebUrl, reservationConfig } from './config.js';
+import { templates, validateConfig, previewRecords, recordsFromRows, safeWebUrl } from './config.js';
+import { exampleColumns, exampleConfig, exampleRecords } from './examples.js';
 
 const columns = [{ id: 'column_1', name: 'title', label: '제목' }];
 const config = () => ({ version: 1, title: '테스트', pages: [
@@ -46,6 +47,7 @@ test('record adapter preserves preview rows without changing the report', () => 
   assert.equal(records[0].values.column_1, '001');
   assert.equal(records[1].values.column_1, '<script>text</script>');
   assert.deepEqual(report, before);
+  assert.deepEqual(recordsFromRows(report.preview.slice(1, 3), columns), records.slice(1, 3));
 });
 
 test('URLs permit only explicit http(s) addresses without credentials', () => {
@@ -54,12 +56,9 @@ test('URLs permit only explicit http(s) addresses without credentials', () => {
 });
 
 
-test('development example mapping uses the first supported columns', () => {
-  assert.throws(() => reservationConfig(columns));
-  const source = Array.from({ length: 9 }, (_, i) => ({ id: `column_${i + 1}`, name: `column ${i + 1}` }));
-  const result = reservationConfig(source);
-  assert.equal(result.pages[0].bindings.title, 'column_1');
-  assert.equal(result.pages[1].template, 'table');
-  assert.equal(result.pages[2].template, 'grouped');
-  assert.equal(result.pages[2].bindings.group, 'column_5');
+test('template examples use fictional records and all ready templates', () => {
+  assert.deepEqual(validateConfig(exampleConfig, exampleColumns), exampleConfig);
+  assert.deepEqual(new Set(exampleConfig.pages.map((page) => page.template)),
+    new Set(Object.keys(templates).filter((id) => templates[id].ready)));
+  assert.equal(exampleRecords.length, 3);
 });

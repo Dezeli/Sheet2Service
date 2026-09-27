@@ -120,9 +120,9 @@ def _normalize_column_ref(value, column_ids):
 def normalize_preview_config(config, columns):
     """Deterministically remove provider noise before strict validation.
 
-    This never invents pages, bindings, or columns. It only drops binding slots
-    that the selected template cannot use and trims simple punctuation around a
-    column ID when the result is an existing input column.
+    This never invents pages, bindings, or columns. It drops unusable binding
+    slots and blank optional detail links, and trims simple punctuation around
+    a column ID when the result is an existing input column.
     """
     if not isinstance(config, dict) or not isinstance(config.get("pages"), list):
         return config
@@ -134,6 +134,8 @@ def normalize_preview_config(config, columns):
             pages.append(page)
             continue
         copied = dict(page)
+        if isinstance(copied.get("detailPage"), str) and not copied["detailPage"].strip():
+            copied.pop("detailPage")
         spec = TEMPLATE_CATALOG.get(page.get("template"))
         bindings = page.get("bindings")
         if spec is not None and isinstance(bindings, dict):

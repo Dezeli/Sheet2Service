@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { previewRecords, reservationConfig, safeWebUrl, templates, validateConfig } from './config';
+import { previewRecords, safeWebUrl, templates, validateConfig } from './config';
 import './preview.css';
 import Charts from './Charts.jsx';
 
 const text = (value) => value === null || value === undefined || String(value).trim() === '' ? '-' : String(value);
 const templateNotes = {
-  cards: '???? ?? ?? ??',
-  table: '?? ??? ? ?? ??',
-  grouped: '???? ?? ??',
+  cards: '카드로 항목 살펴보기',
+  table: '표에서 항목 비교하기',
+  grouped: '분류별 항목 살펴보기',
 };
 
 function Picture({ value }) {
@@ -16,14 +16,14 @@ function Picture({ value }) {
   useEffect(() => setFailed(false), [url]);
   return url && !failed
     ? <img className="service-image" src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
-    : <div className="service-image service-image-empty">??? ??</div>;
+    : <div className="service-image service-image-empty">이미지 없음</div>;
 }
 
 function Fields({ ids = [], record, columns }) {
   return <dl className="service-fields">{ids.map((id) => {
     const value = text(record.values[id]);
     return <div key={id}><dt>{columns.find((column) => column.id === id)?.label || id}</dt>
-      <dd>{value.length > 250 ? <details><summary>{value.slice(0, 100)}?</summary><p>{value}</p></details> : value}</dd></div>;
+      <dd>{value.length > 250 ? <details><summary>{value.slice(0, 100)}… 더 보기</summary><p>{value}</p></details> : value}</dd></div>;
   })}</dl>;
 }
 
@@ -50,7 +50,7 @@ function Grouped({ page, records, columns, openDetail }) {
   return <div className="service-groups">{Array.from(groups.entries()).map(([name, items], index) => <section className="service-group" key={name} aria-labelledby={`${page.id}_group_${index}`}>
     <div className="service-group-heading">
       <h3 id={`${page.id}_group_${index}`}>{name}</h3>
-      <span>{items.length.toLocaleString()}?</span>
+      <span>{items.length.toLocaleString()}개 항목</span>
     </div>
     <Cards page={page} records={items} columns={columns} openDetail={openDetail} />
   </section>)}</div>;
@@ -59,8 +59,8 @@ function Grouped({ page, records, columns, openDetail }) {
 function TableCell({ value }) {
   const display = text(value);
   const link = safeWebUrl(value);
-  const content = display.length > 120 ? <details><summary>{display.slice(0, 80)}?</summary><p>{display}</p></details> : display;
-  return link ? <a href={link} target="_blank" rel="noopener noreferrer">{display.length > 80 ? `${display.slice(0, 80)}?` : display}</a> : content;
+  const content = display.length > 120 ? <details><summary>{display.slice(0, 80)}… 더 보기</summary><p>{display}</p></details> : display;
+  return link ? <a href={link} target="_blank" rel="noopener noreferrer">{display.length > 80 ? `${display.slice(0, 80)}…` : display}</a> : content;
 }
 
 function Table({ page, records, columns }) {
@@ -85,7 +85,7 @@ function Detail({ page, record, columns }) {
     <div>{b.badge && <span className="service-badge">{text(record.values[b.badge])}</span>}
       <h3>{text(record.values[b.title])}</h3>
       <div className="service-actions">
-        {link && <a href={link} target="_blank" rel="noopener noreferrer">??? ??? ??</a>}
+        {link && <a href={link} target="_blank" rel="noopener noreferrer">외부 링크 열기</a>}
         {b.phone && (dial ? <a href={`tel:${dial}`}>{phone}</a> : <span>{phone}</span>)}
       </div>
       <Fields ids={b.fields} record={record} columns={columns} />
@@ -97,7 +97,7 @@ function Detail({ page, record, columns }) {
 export function PreviewRuntime({ config, columns, records }) {
   try {
     validateConfig(config, columns);
-    if (config.pages.some((item) => !templates[item.template].ready)) throw new Error('? ???? ?? ???? ?? ???? ???? ????.');
+    if (config.pages.some((item) => !templates[item.template].ready)) throw new Error('아직 사용할 수 없는 미리보기 형식이 포함되어 있습니다.');
   } catch (err) { return <p className="error" role="alert">{err.message}</p>; }
   return <RuntimePages key={JSON.stringify(config)} config={config} columns={columns} records={records} />;
 }
@@ -120,41 +120,33 @@ function RuntimePages({ config, columns, records }) {
   useEffect(() => { heading.current?.focus(); }, [location]);
   return <div className="service-runtime">
     <div className="service-preview-meta">
-      <span>{records.length.toLocaleString()}? ??</span>
-      <span>{listPages.length.toLocaleString()}? ?? ??</span>
+      <span>{records.length.toLocaleString()}개 항목</span>
+      <span>{listPages.length.toLocaleString()}개 목록 화면</span>
     </div>
-    <nav className="service-view-tabs" aria-label="??? ?? ??">{listPages.map((item) => <button key={item.id} type="button" aria-current={page?.id === item.id ? 'page' : undefined} onClick={() => openList(item.id)}>
+    <nav className="service-view-tabs" aria-label="서비스 미리보기 화면 선택">{listPages.map((item) => <button key={item.id} type="button" aria-current={page?.id === item.id ? 'page' : undefined} onClick={() => openList(item.id)}>
       <strong>{item.title}</strong>
       <span>{templateNotes[item.template] || templates[item.template].label}</span>
     </button>)}</nav>
-    {page?.template === 'detail' && <button type="button" className="service-back-button" onClick={() => openList(lastListPage || listPages[0]?.id)}>???? ????</button>}
+    {page?.template === 'detail' && <button type="button" className="service-back-button" onClick={() => openList(lastListPage || listPages[0]?.id)}>목록으로 돌아가기</button>}
     <h2 ref={heading} tabIndex={-1}>{page?.title || config.title}</h2>
     <Charts configs={page?.charts} records={records} />
-    {!records.length ? <p>??? ???? ????.</p>
+    {!records.length ? <p>표시할 항목이 없습니다.</p>
       : page?.template === 'cards' ? <Cards page={page} records={records} columns={columns} openDetail={openDetail} />
         : page?.template === 'grouped' ? <Grouped page={page} records={records} columns={columns} openDetail={openDetail} />
         : page?.template === 'table' ? <Table page={page} records={records} columns={columns} />
         : page?.template === 'detail' && record ? <Detail page={page} record={record} columns={columns} />
-          : <p>??? ??? ??? ???.</p>}
+          : <p>선택한 항목을 찾을 수 없습니다.</p>}
   </div>;
 }
 
 export default function ServicePreview({ report, config }) {
   const [opened, setOpened] = useState(true);
-  let previewConfig = config;
-  let sourceLabel = 'Claude API ??? ??? ??';
-  if (!previewConfig && import.meta.env.DEV) {
-    try {
-      previewConfig = reservationConfig(report.columns);
-      sourceLabel = '??? ?? ??';
-    } catch { return null; }
-  }
-  if (!previewConfig) return null;
+  if (!config) return null;
   const records = previewRecords(report);
   return <section className="panel" aria-labelledby="service-preview-title">
-    <div className="section-title"><h2 id="service-preview-title">??? Preview</h2>
-      <button onClick={() => setOpened(!opened)} aria-expanded={opened}>{opened ? 'Preview ??' : 'Preview ??'}</button></div>
-    <p className="muted">{sourceLabel}?? {records.length.toLocaleString()}? ?? ??? ?????. ?? ??? ??? ?? DB/API ???????? ?????.</p>
-    {opened && <PreviewRuntime config={previewConfig} columns={report.columns} records={records} />}
+    <div className="section-title"><h2 id="service-preview-title">서비스 미리보기</h2>
+      <button onClick={() => setOpened(!opened)} aria-expanded={opened}>{opened ? '미리보기 접기' : '미리보기 펼치기'}</button></div>
+    <p className="muted">Claude API가 생성한 설정으로 CSV의 앞 {records.length.toLocaleString()}개 항목을 보여줍니다. 전체 데이터 연결과 저장 기능은 아직 제공하지 않습니다.</p>
+    {opened && <PreviewRuntime config={config} columns={report.columns} records={records} />}
   </section>;
 }

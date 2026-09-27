@@ -1,5 +1,7 @@
 # 의미 추론 계약 v1 (로컬 준비 단계)
 
+이 문서는 이전 v1 계약의 기록이다. 신규 추론에는 [Preview 설정 계약 v2](preview-config-v2.md)를 사용한다.
+
 `backend/uploads/inference.py`는 기존 분석 JSON을 입력으로 받아 추론용 메시지를 만들고, 가짜 또는 추후 받은 응답을 검증합니다. 네트워크·키 접근·DB 저장·API 엔드포인트는 없습니다. 현재 결과는 사용자 검토용 Preview 설정 후보이며 확정된 서비스가 아닙니다. Preview 설정 계약은 `docs/preview-config.md`와 `backend/uploads/preview_config.py`에 고정합니다.
 
 ## 입력

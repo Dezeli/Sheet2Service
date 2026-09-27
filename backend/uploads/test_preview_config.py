@@ -74,6 +74,22 @@ class PreviewConfigTests(unittest.TestCase):
         self.assertEqual(normalized['pages'][2]['bindings']['group'], 'column_3')
         self.assertIs(validate_preview_config(normalized, self.columns), normalized)
 
+    def test_normalize_removes_only_blank_detail_links(self):
+        for blank in ("", " \t "):
+            value = copy.deepcopy(self.config)
+            value["pages"][3]["detailPage"] = blank
+            normalized = normalize_preview_config(value, self.columns)
+            self.assertNotIn("detailPage", normalized["pages"][3])
+            self.assertEqual(value["pages"][3]["detailPage"], blank)
+            self.assertIs(validate_preview_config(normalized, self.columns), normalized)
+
+        value = copy.deepcopy(self.config)
+        value["pages"][3]["detailPage"] = "service_detail"
+        normalized = normalize_preview_config(value, self.columns)
+        self.assertEqual(normalized["pages"][3]["detailPage"], "service_detail")
+        with self.assertRaises(PreviewConfigError):
+            validate_preview_config(normalized, self.columns)
+
     def test_normalize_drops_unreferenced_incomplete_placeholder_pages(self):
         value = copy.deepcopy(self.config)
         value['pages'].append({

@@ -1,6 +1,8 @@
 """Deterministic profiling; original values are never cast or rewritten."""
 import csv
+import hashlib
 import io
+import random
 import re
 from collections import Counter
 from datetime import date, datetime, time
@@ -9,6 +11,7 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_ROWS = 50_000
 MAX_COLUMNS = 200
 MAX_CELLS = 500_000
+INFERENCE_SAMPLE_LIMIT = 10
 csv.field_size_limit(100_000)
 
 
@@ -67,7 +70,7 @@ def analyze(data, encoding="auto", allow_replacement=False):
         if "\x00" in text:
             raise TableError("CSV에 지원하지 않는 NUL 문자가 있습니다. UTF-8 CSV로 다시 저장해 주세요.")
         rows = csv.reader(io.StringIO(text, newline=""), strict=True)
-        report = profile(rows)
+        report = profile(rows, sample_seed=int.from_bytes(hashlib.sha256(data).digest()[:8], "big"))
         report["source"] = {"format": "csv", "encoding": actual_encoding, "delimiter": ",", "replaced_bytes": replaced}
         if replaced:
             report["warnings"].insert(0, f"읽을 수 없는 바이트 {replaced}개를 �로 표시했습니다. 해당 값의 통계·고유값은 정확하지 않을 수 있습니다. 원본 파일은 변경하지 않았습니다.")
@@ -76,6 +79,59 @@ def analyze(data, encoding="auto", allow_replacement=False):
         raise
     except (csv.Error, ValueError, TypeError) as exc:
         raise TableError("표를 읽지 못했습니다. 파일 형식과 셀 값을 확인해 주세요.") from exc
+
+
+def read_page(data, *, encoding, width, page, page_size=20):
+    """Read one page of nonblank CSV records without changing saved analysis."""
+    text, _, _ = csv_text(data, encoding, allow_replacement=True)
+    rows = csv.reader(io.StringIO(text, newline=""), strict=True)
+    next(rows, None)
+    start = (page - 1) * page_size
+    stop = start + page_size
+    result = []
+    record_index = 0
+    for row_number, row in enumerate(rows, start=2):
+        if all(missing(value) for value in row):
+            continue
+        if record_index >= stop:
+            break
+        if record_index >= start:
+            result.append({"row_number": row_number,
+                           "values": [serial(row[index]) if index < len(row) else None
+                                      for index in range(width)]})
+        record_index += 1
+    return result
+
+
+def chart_counts(data, *, encoding, column_numbers):
+    """Count chart categories across all nonblank CSV records."""
+    text, _, _ = csv_text(data, encoding, allow_replacement=True)
+    rows = csv.reader(io.StringIO(text, newline=""), strict=True)
+    next(rows, None)
+    counts = {number: Counter() for number in column_numbers}
+    total = 0
+    for row in rows:
+        if all(missing(value) for value in row):
+            continue
+        total += 1
+        for number in column_numbers:
+            value = row[number - 1] if number <= len(row) else None
+            counts[number][None if missing(value) else value] += 1
+    result = {}
+    for number, categories in counts.items():
+        sorted_groups = sorted(categories.items(), key=lambda item: item[1], reverse=True)
+        if len(sorted_groups) > 8:
+            visible = sorted_groups[:7]
+            remainder = sorted_groups[7:]
+            visible.append((f"나머지 {len(remainder)}개 분류", sum(count for _, count in remainder)))
+        else:
+            visible = sorted_groups
+        result[f"column_{number}"] = {
+            "total": total,
+            "groups": [{"label": "값 없음" if label is None else label, "count": count,
+                        "ratio": count / total if total else 0} for label, count in visible],
+        }
+    return result
 
 
 def value_kind(value):
@@ -109,7 +165,7 @@ def value_kind(value):
     return "text"
 
 
-def profile(rows):
+def profile(rows, *, sample_seed=0):
     header = list(next(rows, []))
     if not header:
         raise TableError("첫 행에 컬럼명이 있는 표가 필요합니다.")
@@ -174,10 +230,30 @@ def profile(rows):
             "date_ratio": (kinds["date"] + kinds["datetime"]) / denominator if denominator else 0,
             "issues": issues,
         })
+    if len(records) <= INFERENCE_SAMPLE_LIMIT:
+        sample_indexes = list(range(len(records)))
+    else:
+        count = len(records)
+        fixed = {0, 1, (count - 1) // 2, (count + 1) // 2, count - 2, count - 1}
+        remaining = [index for index in range(count) if index not in fixed]
+        rng = random.Random(sample_seed)
+        random_indexes = []
+        for part in range(4):
+            segment = remaining[part * len(remaining) // 4:(part + 1) * len(remaining) // 4]
+            inset = len(segment) // 4
+            interior = segment[inset:len(segment) - inset] or segment
+            random_indexes.append(rng.choice(interior))
+        sample_indexes = sorted(fixed.union(random_indexes))
+
+    def report_row(index):
+        row = records[index]
+        return {"row_number": row_numbers[index],
+                "values": [serial(row[i]) if i < len(row) else None for i in range(width)]}
+
     return {
         "schema_version": 1, "row_count": len(records), "column_count": width,
         "skipped_blank_rows": skipped, "columns": columns, "warnings": warnings,
-        "preview": [{"row_number": number, "values": [serial(row[i]) if i < len(row) else None for i in range(width)]}
-                    for number, row in zip(row_numbers[:20], records[:20])],
+        "preview": [report_row(index) for index in range(min(20, len(records)))],
         "preview_limit": 20,
+        "inference_samples": [report_row(index) for index in sample_indexes],
     }

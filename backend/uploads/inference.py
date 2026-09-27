@@ -146,22 +146,22 @@ that affect template choice, column placement, or user-facing interpretation.
 Example shape only; use the actual input column IDs, not these example labels:
 {
   "schema_version": 1,
-  "summary": "???? ?? ??? ?? ???? ??????.",
+  "summary": "시설 정보를 목록과 상세 화면으로 보여줍니다.",
   "preview": {
     "version": 1,
-    "title": "??? ????",
+    "title": "시설 둘러보기",
     "pages": [
       {
         "id": "items",
         "template": "cards",
-        "title": "??",
+        "title": "시설 목록",
         "bindings": {"title": "column_1", "subtitle": "column_2", "fields": ["column_3"]},
         "detailPage": "item_detail"
       },
       {
         "id": "item_detail",
         "template": "detail",
-        "title": "??",
+        "title": "시설 상세",
         "bindings": {"title": "column_1", "fields": ["column_2", "column_3"]}
       }
     ]
