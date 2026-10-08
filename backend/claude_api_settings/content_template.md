@@ -11,3 +11,8 @@
   "sampling": {{SAMPLING_JSON}}
 }
 </csv_analysis>
+
+Also return `serviceSummary`, `userFlows`, and `adminFlows` in the required JSON schema.
+Write `serviceSummary` as one concise sentence of at most 180 characters describing what this CSV appears to represent. Do not claim that user submissions or reservations already exist unless the CSV contains them.
+Offer one to three distinct user flows and one to three distinct admin flows. Each flow has a supported `template`, a `subjectColumn` from the schema, and two to five short, concrete `steps` (at most 140 characters each) describing what the person sees and does. Use each template at most once per role. Use the same service subject for compatible user and admin flows when possible. The user will choose one of each before preview pages are activated.
+The supported user templates are `request_review` (submit a request for admin review), `request_auto` (submit a request without approval), and `browse_only`. The supported admin templates are `review_requests`, `monitor_requests`, and `manage_catalog`. Request records are new application data, not rows already present in the CSV. Do not invent fields, code, SQL, or unsupported actions.

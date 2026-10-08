@@ -4,6 +4,8 @@ import copy
 import json
 from pathlib import Path
 
+from .workflow import flow_schema
+
 
 SETTINGS_DIR = Path(__file__).resolve().parents[1] / "claude_api_settings"
 MAX_INPUT_BYTES = 64_000
@@ -110,7 +112,10 @@ def build_schema(report):
         "version": {"type": "integer", "enum": [2]},
         "views": {"type": "array", "minItems": 1,
                   "items": {"anyOf": [_view(template, candidates) for template in templates]}},
-    }, ["version", "views"]) | {"$defs": definitions}
+        "serviceSummary": {"type": "string"},
+        "userFlows": {"type": "array", "items": flow_schema("user", report)},
+        "adminFlows": {"type": "array", "items": flow_schema("admin", report)},
+    }, ["version", "views", "serviceSummary", "userFlows", "adminFlows"]) | {"$defs": definitions}
 
 
 def build_input(report):

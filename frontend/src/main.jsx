@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import ServicePreviewV2 from './preview/ServicePreviewV2';
 import TemplateExamples from './preview/TemplateExamples';
+import AdminPreview from './admin/AdminPreview';
+import WorkflowReview from './workflow/WorkflowReview';
+import UserPage from './user/UserPage';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -193,14 +196,76 @@ function App() {
       <div role="status" aria-live="polite">{busy ? '파일을 읽고 있습니다. 잠시 기다려 주세요.' : upload ? '업로드가 완료됐습니다.' : ''}</div>
       {upload && <Preview upload={upload} />}
       {upload && <ClaudePreviewApproval upload={upload} csrfToken={csrfToken} onResult={setClaudeResult} />}
-      {upload && claudeResult && <ServicePreviewV2 key={`${upload.id}-${claudeResult.model_call_id}`}
-        uploadId={upload.id} report={upload.analysis} config={claudeResult.result.preview}
-        usedFallback={claudeResult.result.used_fallback} />}
+      {upload && claudeResult && <WorkflowReview key={`${upload.id}-${claudeResult.model_call_id}`}
+        uploadId={upload.id} csrfToken={csrfToken} />}
       {upload && <ColumnAnalysis report={upload.analysis} />}
     </main>
   );
 }
 
-createRoot(document.getElementById('root')).render(
-  <React.StrictMode>{window.location.pathname.replace(/\/+$/, '') === '/templates' ? <TemplateExamples /> : <App />}</React.StrictMode>,
-);
+function ServicePage({ uploadId, page }) {
+  const [service, setService] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    api(`/api/uploads/${uploadId}/service/`)
+      .then((data) => { if (active) setService(data); })
+      .catch((caught) => { if (active) setError(caught.message); });
+    return () => { active = false; };
+  }, [uploadId]);
+  return <main>
+    <header>
+      <p className="eyebrow">Sheet2Service</p>
+      <h1>{page === 'DashBoard' ? 'Dashboard' : page}</h1>
+      <p className="filename">{service?.upload.name || uploadId}</p>
+      <nav className="service-switch" aria-label="서비스 화면 이동">
+        {service?.workflow_config && <a href={`/${uploadId}/User`} aria-current={page === 'User' ? 'page' : undefined}>User</a>}
+        <a href={`/${uploadId}/DashBoard`} aria-current={page === 'DashBoard' ? 'page' : undefined}>Dashboard</a>
+        <a href={`/${uploadId}/Admin`} aria-current={page === 'Admin' ? 'page' : undefined}>Admin</a>
+      </nav>
+    </header>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!error && !service && <p role="status">서비스 화면을 불러오는 중입니다.</p>}
+    {service?.workflow_required && !service.workflow_config && <p className="notice">
+      유저·관리자 플로우를 선택하면 서비스 Preview가 열립니다. 업로드 화면에서 흐름을 선택해 주세요.
+    </p>}
+    {service && (!service.workflow_required || service.workflow_config) && (page === 'User'
+      ? service.workflow_config
+        ? <UserPage uploadId={uploadId} report={service.upload.analysis} config={service.workflow_config} />
+        : <p className="notice">유저 플로우를 먼저 선택해 주세요.</p>
+      : page === 'DashBoard'
+        ? <><RequestMetrics uploadId={uploadId} enabled={Boolean(service.workflow_config)} />
+            <ServicePreviewV2 uploadId={uploadId} report={service.upload.analysis}
+              config={service.result.preview} usedFallback={service.result.used_fallback} /></>
+        : <AdminPreview uploadId={uploadId} report={service.upload.analysis}
+            dashboardConfig={service.result.preview} workflowConfig={service.workflow_config} />)}
+  </main>;
+}
+
+function RequestMetrics({ uploadId, enabled }) {
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    if (!enabled) return;
+    api(`/api/uploads/${uploadId}/service-requests/stats/`).then(setStats).catch(() => setStats(null));
+  }, [uploadId, enabled]);
+  if (!enabled || !stats) return null;
+  return <section className="panel" aria-labelledby="request-metrics-title">
+    <h2 id="request-metrics-title">신청 현황</h2>
+    <dl className="metrics">
+      <div><dt>전체 신청</dt><dd>{stats.total.toLocaleString()}</dd></div>
+      <div><dt>검토 대기</dt><dd>{stats.counts.pending.toLocaleString()}</dd></div>
+      <div><dt>승인</dt><dd>{stats.counts.approved.toLocaleString()}</dd></div>
+      <div><dt>거절</dt><dd>{stats.counts.rejected.toLocaleString()}</dd></div>
+      <div><dt>접수 완료</dt><dd>{stats.counts.submitted.toLocaleString()}</dd></div>
+    </dl>
+  </section>;
+}
+
+const path = window.location.pathname.replace(/\/+$/, '');
+const serviceMatch = path.match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(User|DashBoard|Admin)$/i);
+createRoot(document.getElementById('root')).render(<React.StrictMode>
+  {path === '/templates' ? <TemplateExamples />
+    : serviceMatch ? <ServicePage uploadId={serviceMatch[1]} page={serviceMatch[2].toLowerCase() === 'admin' ? 'Admin'
+      : serviceMatch[2].toLowerCase() === 'user' ? 'User' : 'DashBoard'} />
+      : <App />}
+</React.StrictMode>);

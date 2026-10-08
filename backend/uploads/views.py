@@ -1,7 +1,8 @@
 from pathlib import Path
 
+from django.db import transaction
 from django.utils import timezone
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from rest_framework.authentication import SessionAuthentication
@@ -11,11 +12,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .analysis import MAX_BYTES, TableError, analyze, chart_counts, read_page
+from .analysis import MAX_BYTES, TableError, analyze
 from .claude import approval_summary, run_inference
 from .inference import InferenceError
 from .preview_request_v2 import PreviewRequestError
-from .models import Upload
+from .managed import ensure_imported, managed_chart_counts, managed_report, rows_page
+from .models import ModelCall, Upload
 
 
 class BrowserSessionAuthentication(SessionAuthentication):
@@ -32,7 +34,8 @@ class SessionView(APIView):
 def payload(upload):
     return {
         "id": str(upload.id), "name": upload.original_name, "size": upload.size,
-        "file_type": upload.file_type, "encoding": upload.encoding, "analysis": upload.analysis,
+        "file_type": upload.file_type, "encoding": upload.encoding,
+        "analysis": managed_report(upload) if upload.managed else upload.analysis,
         "created_at": upload.created_at.isoformat(),
     }
 
@@ -76,7 +79,9 @@ class UploadView(SessionView):
         file.seek(0)
         upload.original.save(file.name, file, save=False)
         try:
-            upload.save()
+            with transaction.atomic():
+                upload.save()
+                ensure_imported(upload)
         except Exception:
             upload.original.delete(save=False)
             raise
@@ -106,6 +111,27 @@ class DetailView(SessionView):
         return Response(payload(upload))
 
 
+class ServiceView(SessionView):
+    def get(self, request, pk):
+        upload = owned(request, pk)
+        ensure_imported(upload)
+        call = next((item for item in ModelCall.objects.filter(
+            upload=upload, status=ModelCall.Status.SUCCEEDED).order_by("-completed_at", "-started_at")
+            if isinstance(item.parsed_result, dict) and "preview" in item.parsed_result), None)
+        if call is None:
+            raise Http404
+        return Response({
+            "upload": payload(upload),
+            "model_call_id": str(call.id),
+            "result": {
+                "preview": call.parsed_result["preview"],
+                "used_fallback": call.parsed_result.get("used_fallback", False),
+            },
+            "workflow_config": upload.workflow_config,
+            "workflow_required": bool(call.parsed_result.get("user_flows") or call.parsed_result.get("admin_flows")),
+        })
+
+
 class OriginalView(SessionView):
     def get(self, request, pk):
         upload = owned(request, pk)
@@ -115,21 +141,17 @@ class OriginalView(SessionView):
 class RowsView(SessionView):
     def get(self, request, pk):
         upload = owned(request, pk)
+        ensure_imported(upload)
         try:
             page = int(request.query_params.get("page", "1"))
         except ValueError as exc:
             raise ValidationError({"detail": "페이지 번호는 양의 정수여야 합니다."}) from exc
-        row_count = upload.analysis["row_count"]
+        row_count = upload.managed_rows.count()
         page_size = 20
         if page < 1 or page > max(1, (row_count + page_size - 1) // page_size):
             raise ValidationError({"detail": "페이지 번호가 범위를 벗어났습니다."})
-        with upload.original.open("rb") as original:
-            data = original.read()
-        try:
-            rows = read_page(data, encoding=upload.encoding,
-                             width=upload.analysis["column_count"], page=page, page_size=page_size)
-        except (TableError, ValueError) as exc:
-            raise ValidationError({"detail": str(exc)}) from exc
+        rows = [{"row_number": row["row_number"], "values": row["values"]}
+                for row in rows_page(upload, page, page_size)]
         return Response({"page": page, "page_size": page_size, "row_count": row_count,
                          "rows": rows, "has_next": page * page_size < row_count})
 
@@ -137,6 +159,7 @@ class RowsView(SessionView):
 class ChartCountsView(SessionView):
     def get(self, request, pk):
         upload = owned(request, pk)
+        ensure_imported(upload)
         raw = request.query_params.get("columns", "")
         parts = raw.split(",")
         if not 1 <= len(parts) <= 28 or any(not part.isdecimal() for part in parts):
@@ -144,13 +167,8 @@ class ChartCountsView(SessionView):
         numbers = list(dict.fromkeys(int(part) for part in parts))
         if any(number < 1 or number > upload.analysis["column_count"] for number in numbers):
             raise ValidationError({"detail": "컬럼 번호가 범위를 벗어났습니다."})
-        with upload.original.open("rb") as original:
-            data = original.read()
-        try:
-            summaries = chart_counts(data, encoding=upload.encoding, column_numbers=numbers)
-        except (TableError, ValueError) as exc:
-            raise ValidationError({"detail": str(exc)}) from exc
-        return Response({"row_count": upload.analysis["row_count"], "columns": summaries})
+        summaries = managed_chart_counts(upload, numbers)
+        return Response({"row_count": upload.managed_rows.count(), "columns": summaries})
 
 
 class InferenceView(SessionView):

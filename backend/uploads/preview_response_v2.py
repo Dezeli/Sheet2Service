@@ -3,6 +3,7 @@
 import json
 
 from .preview_request_v2 import PreviewRequestError, build_schema
+from .workflow import normalize_proposal
 
 
 MAX_RESPONSE_BYTES = 64_000
@@ -107,7 +108,7 @@ def _normalize(raw, report):
                            parse_constant=lambda _: _fail("유효하지 않은 JSON 상수입니다."))
     except (ValueError, RecursionError) as exc:
         raise InvalidPreviewResponse("유효한 JSON 응답이 아닙니다.") from exc
-    _keys(value, ("version", "views"), ("version", "views"))
+    _keys(value, ("version", "views", "serviceSummary", "userFlows", "adminFlows"), ("version", "views"))
     if type(value["version"]) is not int or value["version"] != 2:
         _fail("지원하지 않는 Preview 설정 버전입니다.")
     if not isinstance(value["views"], list) or not value["views"]:
@@ -124,7 +125,15 @@ def _normalize(raw, report):
         if signature not in seen:
             views.append(normalized)
             seen.add(signature)
-    return {"version": 2, "views": views[:MAX_VIEWS]}
+    preview = {"version": 2, "views": views[:MAX_VIEWS]}
+    if not any(key in value for key in ("serviceSummary", "userFlows", "adminFlows")):
+        return preview, {"service_summary": "", "user_flows": [], "admin_flows": []}, ""
+    try:
+        proposal = normalize_proposal({key: value.get(key) for key in
+                                       ("serviceSummary", "userFlows", "adminFlows")}, report)
+        return preview, proposal, ""
+    except ValueError as exc:
+        return preview, {"service_summary": "", "user_flows": [], "admin_flows": []}, str(exc)
 
 
 def prepare_preview_response(raw, report):
@@ -134,12 +143,14 @@ def prepare_preview_response(raw, report):
     This function makes no API call and never mutates the input report.
     """
     try:
-        preview = _normalize(raw, report)
-        return {"preview": preview, "used_fallback": False, "validation_error": ""}
+        preview, proposal, flow_error = _normalize(raw, report)
+        return {"preview": preview, **proposal, "used_fallback": False,
+                "validation_error": flow_error}
     except InvalidPreviewResponse as exc:
         columns = report.get("columns", [])
         if not columns or len(columns) > 200:
             raise PreviewRequestError("기본 표를 구성할 수 없는 분석 결과입니다.") from exc
         return {"preview": {"version": 2, "views": [
             {"template": "table", "columns": list(range(1, len(columns) + 1))}
-        ]}, "used_fallback": True, "validation_error": str(exc)}
+        ]}, "service_summary": "", "user_flows": [], "admin_flows": [],
+            "used_fallback": True, "validation_error": str(exc)}

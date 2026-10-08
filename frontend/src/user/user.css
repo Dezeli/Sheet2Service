@@ -1,0 +1,14 @@
+.user-intro { padding: 26px 30px; border-radius: 14px; background: #edf2fc; margin-bottom: 24px; }
+.user-intro h2 { font-size: 1.7rem; }
+.user-intro ol { display: flex; flex-wrap: wrap; gap: 24px; padding-left: 20px; margin-bottom: 0; }
+.user-intro li { max-width: 330px; }
+.user-item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 16px; }
+.user-item { display: flex; flex-direction: column; border: 1px solid #dce3ee; border-radius: 10px; padding: 18px; min-width: 0; }
+.user-item h3 { margin: 4px 0 12px; overflow-wrap: anywhere; }
+.user-item dl { flex: 1; margin: 0 0 18px; }
+.user-item dl div { border-bottom: 1px solid #edf2f8; padding: 7px 0; }
+.user-item dt { font-size: .8rem; }
+.user-item dd { font-size: .9rem; font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-request-list { list-style: none; padding: 0; margin: 0; }
+.user-request-list li { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #edf2f8; }
+.user-request-list li:last-child { border-bottom: 0; }

@@ -1,0 +1,23 @@
+.workflow-review h3 { margin: 0; font-size: 1.15rem; }
+.workflow-summary { border: 1px solid #dce3ee; border-radius: 10px; background: #edf2fc; padding: 18px 20px; margin: 18px 0 30px; }
+.workflow-summary p { margin: 6px 0 0; font-size: 1.08rem; font-weight: 650; }
+.workflow-section { margin: 30px 0; }
+.workflow-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; margin-top: 14px; }
+.workflow-option { display: block; text-align: left; color: #1e293b; background: white; border: 1px solid #dce3ee; min-height: 170px; padding: 18px; }
+.workflow-option:hover, .workflow-option[aria-pressed="true"] { background: #edf2fc; border-color: #2457c5; }
+.workflow-option strong { display: block; margin: 8px 0; }
+.workflow-option ol { margin: 12px 0; padding-left: 20px; font-size: .88rem; font-weight: 400; }
+.workflow-option li { margin: 4px 0; }
+.workflow-option small { font-weight: 400; }
+.workflow-option-number { color: #2457c5; font-weight: 700; font-size: .82rem; }
+.workflow-other { border-style: dashed; }
+.workflow-other p { font-size: .88rem; font-weight: 400; }
+.workflow-custom { border: 1px solid #dce3ee; border-radius: 10px; padding: 20px; background: #f8fafc; }
+.workflow-custom label { margin: 18px 0; }
+.workflow-custom textarea { min-height: 110px; padding: 12px; border: 1px solid #b6c3d5; border-radius: 8px; font: inherit; resize: vertical; }
+.workflow-preflight { margin-top: 20px; padding: 18px; border: 1px solid #b6c3d5; border-radius: 10px; background: white; }
+.workflow-preflight h4 { margin: 0 0 12px; }
+.workflow-preflight p { font-size: .9rem; }
+.workflow-apply { display: flex; justify-content: flex-end; border-top: 1px solid #dce3ee; padding-top: 20px; }
+.workflow-ready { margin-top: 18px; padding: 16px; background: #e3f5ef; border-radius: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.workflow-ready p { margin: 0 auto 0 0; }

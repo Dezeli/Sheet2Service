@@ -38,7 +38,7 @@ def approval_summary(upload):
         # Approximate input tokens from UTF-8 size; provider usage is authoritative.
         low = (request_bytes / 3 * 2 + request_body["max_tokens"] * 10) / 1_000_000
         high = (request_bytes * 0.75 * 2 + request_body["max_tokens"] * 10) / 1_000_000
-        cost_note = (f"2026-09-27 확인한 Sonnet 5 기본 단가(입력 $2/백만 토큰, 출력 $10/백만 토큰)와 "
+        cost_note = (f"2026-10-08 확인한 Sonnet 5 기본 단가(입력 $2/백만 토큰, 출력 $10/백만 토큰)와 "
                      f"최대 출력 기준 예상 비용은 약 US${low:.3f}~${high:.3f}입니다. "
                      "입력 토큰 수는 본문 크기로 추정했으며 실제 비용이나 상한은 아닙니다.")
     else:
@@ -46,7 +46,7 @@ def approval_summary(upload):
     return {
         "requires_approval": True,
         "approved": False,
-        "purpose": "CSV 분석 결과를 바탕으로 서비스 Preview 설정 JSON 후보를 생성합니다.",
+        "purpose": "CSV 분석 결과로 서비스 한 줄 요약, 유저·관리자 플로우 후보와 Dashboard Preview 설정을 제안합니다.",
         "provider": "anthropic",
         "model": request_body["model"],
         "pricing_estimate_available": request_body["model"] == "claude-sonnet-5",
@@ -109,7 +109,7 @@ def run_inference(upload, *, approval_note, approved_at):
     request_body = inference_request_body(upload.analysis)
     call = start_call(
         upload=upload,
-        purpose="서비스 Preview 설정 JSON 후보 생성",
+        purpose="서비스 요약·유저/관리자 플로우 후보와 Dashboard Preview 설정 생성",
         request_body=request_body,
         approval_note=approval_note,
         approved_at=approved_at,

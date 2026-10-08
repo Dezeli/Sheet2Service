@@ -16,7 +16,53 @@ class Upload(models.Model):
     size = models.PositiveIntegerField()
     encoding = models.CharField(max_length=16, blank=True)
     analysis = models.JSONField(null=True)
+    managed = models.BooleanField(default=False)
+    workflow_config = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ManagedRow(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="managed_rows")
+    row_number = models.PositiveIntegerField()
+    values = models.JSONField()
+
+    class Meta:
+        ordering = ["row_number"]
+        constraints = [models.UniqueConstraint(fields=["upload", "row_number"], name="unique_managed_row_number")]
+
+
+class FieldChoice(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="field_choices")
+    column_number = models.PositiveSmallIntegerField()
+    value = models.TextField()
+    value_hash = models.CharField(max_length=64)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["column_number", "value"]
+        constraints = [models.UniqueConstraint(fields=["upload", "column_number", "value_hash"], name="unique_field_choice_hash")]
+
+
+class ServiceRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        SUBMITTED = "submitted", "Submitted"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="service_requests")
+    subject_row = models.ForeignKey(ManagedRow, null=True, on_delete=models.SET_NULL)
+    subject_snapshot = models.TextField()
+    status = models.CharField(max_length=16, choices=Status.choices)
+    created_by_session = models.CharField(max_length=40, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
 class ModelCall(models.Model):

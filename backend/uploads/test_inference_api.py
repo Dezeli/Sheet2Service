@@ -4,9 +4,10 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
 
-from .models import ModelCall
+from .models import ModelCall, Upload
 
 
 @override_settings(ANTHROPIC_API_KEY="synthetic-test-secret")
@@ -23,6 +24,25 @@ class InferenceApiTests(APITestCase):
         self.assertEqual(upload.status_code, 201)
         self.upload_id = upload.data["id"]
         self.token = token
+
+    def test_service_route_restores_saved_preview_only_for_upload_session(self):
+        path = f"/api/uploads/{self.upload_id}/service/"
+        self.assertEqual(self.client.get(path).status_code, 404)
+        upload = Upload.objects.get(pk=self.upload_id)
+        call = ModelCall.objects.create(
+            upload=upload, purpose="preview", model="test-model", request_body={"model": "test-model"},
+            approval_note="recorded approval", approved_at=timezone.now(),
+            status=ModelCall.Status.SUCCEEDED,
+            parsed_result={"preview": {"version": 2, "views": [{"template": "table", "columns": [1, 2]}]},
+                           "used_fallback": False},
+        )
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["model_call_id"], str(call.id))
+        self.assertEqual(response.data["upload"]["id"], self.upload_id)
+        self.assertEqual(response.data["result"]["preview"]["views"][0]["template"], "table")
+        other_session = APIClient()
+        self.assertEqual(other_session.get(path).status_code, 404)
 
     def test_get_reports_approval_scope_without_calling_claude(self):
         response = self.client.get(f"/api/uploads/{self.upload_id}/inference/")
