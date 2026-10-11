@@ -1,13 +1,14 @@
 """Service data and shared choice management APIs, scoped to the upload session."""
 
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
 from .analysis import missing
-from .managed import ensure_imported, next_row_number, rows_page, value_hash
+from .managed import ensure_imported, next_row_number, value_hash
 from .models import FieldChoice, ManagedRow
 from .views import SessionView, owned
 
@@ -52,10 +53,34 @@ class ManagedRowsView(SessionView):
             page = int(request.query_params.get("page", "1"))
         except ValueError as exc:
             raise ValidationError({"detail": "페이지 번호가 올바르지 않습니다."}) from exc
-        count = upload.managed_rows.count()
+        rows = upload.managed_rows.all()
+        query = request.query_params.get("q", "").strip()
+        if len(query) > 200:
+            raise ValidationError({"detail": "검색어는 200자 이하로 입력해 주세요."})
+        if query:
+            conditions = Q()
+            for index in range(upload.analysis["column_count"]):
+                conditions |= Q(**{f"values__{index}__icontains": query})
+            rows = rows.filter(conditions)
+        filter_column = request.query_params.get("filter_column", "")
+        filter_value = request.query_params.get("filter_value", "")
+        if filter_column:
+            try:
+                number = _column(upload, int(filter_column))
+            except (ValueError, TypeError) as exc:
+                raise ValidationError({"detail": "필터 컬럼이 올바르지 않습니다."}) from exc
+            if len(filter_value) > 100_000:
+                raise ValidationError({"detail": "필터 값이 너무 깁니다."})
+            if filter_value:
+                rows = rows.filter(**{f"values__{number - 1}": filter_value})
+        elif filter_value:
+            raise ValidationError({"detail": "필터 컬럼을 선택해 주세요."})
+        count = rows.count()
         if page < 1 or page > max(1, (count + 19) // 20):
             raise ValidationError({"detail": "페이지 번호가 범위를 벗어났습니다."})
-        return Response({"page": page, "row_count": count, "rows": rows_page(upload, page),
+        start = (page - 1) * 20
+        return Response({"page": page, "row_count": count,
+                         "rows": [_row_payload(row) for row in rows.order_by("row_number")[start:start + 20]],
                          "has_next": page * 20 < count})
 
     def post(self, request, pk):

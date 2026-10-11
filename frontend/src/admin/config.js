@@ -12,8 +12,8 @@ export function createAdminConfig(report, dashboardConfig, workflowConfig = null
     { template: 'fields', columns },
     { template: 'choices', columns },
   ];
-  if (['review_requests', 'monitor_requests'].includes(workflowConfig?.admin?.template)) {
-    views.push({ template: 'requests', columns: [workflowConfig.admin.subjectColumn] });
+  if (['review_requests', 'monitor_requests', 'reply_inquiries'].includes(workflowConfig?.admin?.template)) {
+    views.push({ template: 'requests', columns: [workflowConfig.admin.subjectColumn || 1] });
   }
   return validateAdminConfig({
     version: 1,

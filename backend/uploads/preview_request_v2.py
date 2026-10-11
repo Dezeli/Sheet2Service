@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .workflow import flow_schema
+from .template_registry import TEMPLATES
 
 
 SETTINGS_DIR = Path(__file__).resolve().parents[1] / "claude_api_settings"
@@ -113,9 +114,10 @@ def build_schema(report):
         "views": {"type": "array", "minItems": 1,
                   "items": {"anyOf": [_view(template, candidates) for template in templates]}},
         "serviceSummary": {"type": "string"},
+        "serviceSubject": {"type": "string"},
         "userFlows": {"type": "array", "items": flow_schema("user", report)},
         "adminFlows": {"type": "array", "items": flow_schema("admin", report)},
-    }, ["version", "views", "serviceSummary", "userFlows", "adminFlows"]) | {"$defs": definitions}
+    }, ["version", "views", "serviceSummary", "serviceSubject", "userFlows", "adminFlows"]) | {"$defs": definitions}
 
 
 def build_input(report):
@@ -172,6 +174,9 @@ def build_prompt(report):
         template = template.replace("{{" + key + "}}", _json(value))
     if "{{" in template:
         raise PreviewRequestError("채워지지 않은 콘텐츠 템플릿 항목이 있습니다.")
-    return {"system": (SETTINGS_DIR / "system_prompt.md").read_text(encoding="utf-8"),
+    system = (SETTINGS_DIR / "system_prompt.md").read_text(encoding="utf-8")
+    system += "\nRegistered feature templates:\n" + _json(TEMPLATES)
+    system += "\nRecommend only implemented templates from this registry. Never claim planned capabilities are implemented. Return all suitable unique features; do not apply an arbitrary three-feature limit."
+    return {"system": system,
             "messages": [{"role": "user", "content": template}],
             "output_config": {"format": {"type": "json_schema", "schema": schema}}}

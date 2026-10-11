@@ -1,154 +1,181 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { featureLabels, recommendedSelection, restoreFeatures, rolesOf, selectedFirst, toggleFeature } from './features';
 import './workflow.css';
-
-const labels = {
-  request_review: '신청 후 승인', request_auto: '신청 즉시 접수', browse_only: '목록 둘러보기',
-  review_requests: '신청 승인·거절', monitor_requests: '신청 현황 관리', manage_catalog: '목록·접수 관리',
-};
-const compatible = {
-  request_review: 'review_requests', request_auto: 'monitor_requests', browse_only: 'manage_catalog',
-};
+import SectionIcon from '../components/SectionIcon';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.detail || '요청을 처리하지 못했습니다.');
+  if (!response.ok || !data) throw new Error(data?.detail || '요청을 처리하지 못했습니다.');
   return data;
 }
 
-export default function WorkflowReview({ uploadId, csrfToken, onApplied }) {
+export default function WorkflowReview({ uploadId, csrfToken, onApplied, onBack }) {
   const [proposal, setProposal] = useState(null);
-  const [selected, setSelected] = useState({ user: null, admin: null });
-  const [custom, setCustom] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [dashboard, setDashboard] = useState([]);
+  const [manageData, setManageData] = useState(false);
+  const [custom, setCustom] = useState('user');
   const [description, setDescription] = useState('');
-  const [preflight, setPreflight] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [applied, setApplied] = useState(false);
+  const [customResult, setCustomResult] = useState(null);
+  const calling = useRef(false);
+  const base = `/api/uploads/${uploadId}/workflow/`;
 
-  async function load() {
-    const result = await api(`/api/uploads/${uploadId}/workflow/`);
+  async function load(restore = false) {
+    const result = await api(base);
     setProposal(result);
-    if (result.selected) setApplied(true);
+    if (restore && result.selected) {
+      setSelected(restoreFeatures(result.selected, [...result.recommended, ...result.templates]));
+      const roles = rolesOf(result.selected);
+      setDashboard(roles.dashboard); setManageData(roles.admin.includes('manage_catalog'));
+      setApplied(true);
+    } else if (restore) {
+      setSelected(recommendedSelection(result.recommended));
+      setDashboard(result.dashboard.filter((option) => option.implemented).map((option) => option.template));
+      setManageData(result.recommended.some((option) => option.template === 'browse_only' && option.implemented));
+    }
     return result;
   }
+  useEffect(() => { load(true).catch((caught) => setError(caught.message)); }, [uploadId]);
 
-  useEffect(() => { load().catch((caught) => setError(caught.message)); }, [uploadId]);
-
-  function select(scope, option) {
-    setSelected((current) => ({ ...current, [scope]: option }));
-    setApplied(false);
-    setError('');
+  function toggle(option) {
+    setSelected((current) => toggleFeature(current, option));
+    setApplied(false); setError('');
   }
 
-  function startCustom(scope) {
-    setCustom(scope); setDescription(''); setPreflight(null); setError('');
+  function toggleDashboard(option) {
+    setDashboard((current) => current.includes(option.template)
+      ? current.filter((id) => id !== option.template) : [...current, option.template]);
+    setApplied(false); setError('');
   }
 
-  async function previewCustom(event) {
+  async function runCustom(event) {
     event.preventDefault();
-    setBusy(true); setError('');
+    if (description.trim().length < 10 || busy || calling.current) return;
+    calling.current = true; setBusy(true); setError('');
+    setCustomResult(null);
     try {
-      const result = await api(`/api/uploads/${uploadId}/workflow/custom-preview/`, {
+      const preflight = await api(`${base}custom-preview/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify({ scope: custom, description }),
       });
-      setPreflight(result);
-    } catch (caught) { setError(caught.message); }
-    finally { setBusy(false); }
-  }
-
-  async function runCustom() {
-    if (!preflight || busy) return;
-    setBusy(true); setError('');
-    try {
-      const result = await api(`/api/uploads/${uploadId}/workflow/custom-run/`, {
+      const result = await api(`${base}custom-run/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         body: JSON.stringify({ scope: custom, description, approved: true,
-          approval_note: `${custom} 맞춤 플로우 제안 Claude API 1회 호출 승인`,
+          approval_note: `전송 버튼으로 ${custom} 추가 기능 추천 Claude API 1회 호출 승인`,
           request_fingerprint: preflight.request_fingerprint }),
       });
-      const updated = await load();
-      const option = updated.options[custom].find((item) => item.model_call_id === result.model_call_id);
-      if (option) select(custom, option);
-      setCustom(null); setPreflight(null);
+      setCustomResult(result.result);
+      if (result.result.status !== 'supported') return;
+      await load();
+      setDescription('');
     } catch (caught) { setError(caught.message); }
-    finally { setBusy(false); }
+    finally { calling.current = false; setBusy(false); }
   }
 
   async function apply() {
-    if (!selected.user || !selected.admin || busy) return;
-    setBusy(true); setError('');
+    if ((!selected.length && !dashboard.length && !manageData) || busy || calling.current) return;
+    calling.current = true; setBusy(true); setError('');
     try {
-      await api(`/api/uploads/${uploadId}/workflow/`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ user: { model_call_id: selected.user.model_call_id, index: selected.user.index },
-          admin: { model_call_id: selected.admin.model_call_id, index: selected.admin.index } }),
+      await api(base, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ features: selected.map((item) => item.reference),
+          roles: { dashboard, admin: manageData ? ['manage_catalog'] : [] } }),
       });
-      setApplied(true);
-      onApplied?.();
+      setApplied(true); onApplied?.(selected.length ? 'User' : dashboard.length ? 'DashBoard' : 'Admin');
     } catch (caught) { setError(caught.message); }
-    finally { setBusy(false); }
+    finally { calling.current = false; setBusy(false); }
   }
 
-  if (!proposal) return <section className="panel"><p>서비스 구성을 불러오는 중입니다.</p>{error && <p className="error">{error}</p>}</section>;
-  const mismatch = selected.user && selected.admin
-    && compatible[selected.user.template] !== selected.admin.template;
+  function options(items, scope) {
+    const isSelected = (option) => scope === 'dashboard' ? dashboard.includes(option.template)
+      : option.template === 'manage_catalog' ? manageData : selected.some((item) => item.template === option.template);
+    return <div className="workflow-role-options">{selectedFirst(items, isSelected).map((option) => {
+      const active = isSelected(option);
+      const saved = selected.find((item) => item.template === option.template);
+      const exclusive = ['request_review', 'request_auto'].includes(option.template) &&
+        proposal.recommended.filter((item) => ['request_review', 'request_auto'].includes(item.template)).length > 1;
+      const title = scope === 'dashboard' || option.template === 'manage_catalog' ? option.name
+        : (active && saved?.[`${scope}_title`]) || option[`${scope}_title`] || option.name || featureLabels[option.template];
+      return <button type="button" key={option.template} className="workflow-role-option" aria-pressed={active}
+        style={{ gridColumn: scope === 'dashboard' ? 1 : scope === 'user' ? 2 : 3,
+          gridRow: 2 + (scope === 'dashboard' ? selectedFirst(items, isSelected).findIndex((item) => item.template === option.template)
+            : pairedRows.some((item) => item.template === option.template)
+              ? pairedRows.findIndex((item) => item.template === option.template)
+              : pairedRows.length + selectedFirst(items.filter((item) => ['browse_only', 'manage_catalog'].includes(item.template)), isSelected)
+                .findIndex((item) => item.template === option.template)) }}
+        data-role={scope} data-feature={option.template}
+        data-paired={scope !== 'dashboard' && !['browse_only', 'manage_catalog'].includes(option.template) ? 'true' : 'false'}
+        disabled={busy || !option.implemented} onClick={() => {
+          if (scope === 'dashboard') toggleDashboard(option);
+          else if (option.template === 'manage_catalog') { setManageData((value) => !value); setApplied(false); setError(''); }
+          else toggle(option);
+        }}>
+        <span className="workflow-check" aria-hidden="true">{active ? '✓' : ''}</span>
+        <span className="workflow-option-content"><strong title={title}>{title}</strong>
+          {exclusive && <span className="workflow-option-rules">
+            {exclusive && <span className="workflow-rule-exclusive">접수 방식 · 택 1</span>}
+          </span>}
+        </span>
+        {!option.implemented && <span className="workflow-unavailable">미구현</span>}
+      </button>;
+    })}</div>;
+  }
 
-  return <section className="panel workflow-review" aria-labelledby="workflow-title">
-    <p className="eyebrow">SERVICE SETUP</p><h2 id="workflow-title">서비스 흐름 선택</h2>
-    <div className="workflow-summary"><small>이 CSV의 한 줄 요약</small>
-      <p>{proposal.service_summary || '기존 Preview 결과에는 서비스 요약이 없습니다. 원하는 흐름을 직접 설명해 주세요.'}</p></div>
-    {['user', 'admin'].map((scope) => <div key={scope} className="workflow-section">
-      <div className="section-title"><h3>{scope === 'user' ? '유저 플로우' : '관리자 플로우'}</h3>
-        <span className="muted">한 가지를 선택해 주세요.</span></div>
-      <div className="workflow-options">{proposal.options[scope].map((option, index) => {
-        const active = selected[scope]?.model_call_id === option.model_call_id
-          && selected[scope]?.index === option.index;
-        return <button type="button" key={`${option.model_call_id}-${option.index}`}
-          className="workflow-option" aria-pressed={active} onClick={() => select(scope, option)}>
-          <span className="workflow-option-number">{index + 1}</span><strong>{labels[option.template]}</strong>
-          <ol>{option.steps.map((step, at) => <li key={at}>{step}</li>)}</ol>
-          <small>대상 항목: {option.subjectColumn}번 필드</small>
-        </button>;
-      })}
-        <button type="button" className="workflow-option workflow-other" onClick={() => startCustom(scope)}>
-          <span className="workflow-option-number">그외</span><strong>원하는 흐름 직접 설명</strong>
-          <p>원하는 동작을 짧게 적고, 전송 내용을 확인한 뒤 새 후보를 받아보세요.</p>
-        </button>
-      </div>
-    </div>)}
-    {custom && <form className="workflow-custom" onSubmit={previewCustom}>
-      <div className="section-title"><h3>{custom === 'user' ? '유저' : '관리자'} 플로우 직접 설명</h3>
-        <button type="button" className="service-back-button" onClick={() => { setCustom(null); setPreflight(null); }}>닫기</button></div>
-      <label>원하는 흐름
-        <textarea value={description} minLength={10} maxLength={500} required
-          onChange={(event) => { setDescription(event.target.value); setPreflight(null); }}
-          placeholder="예: 유저가 항목을 선택해 신청하면 관리자가 승인하거나 거절합니다." />
-      </label>
-      <button type="submit" disabled={busy || description.trim().length < 10}>전송 범위 확인</button>
-      {preflight && <div className="workflow-preflight">
-        <h4>Claude API 호출 전 확인</h4>
-        <p>목적: {preflight.purpose}</p>
-        <p>전송: 입력한 설명, CSV의 열 이름·분석 유형·행 수. 원본 CSV와 데이터 예시 행은 보내지 않습니다.</p>
-        <blockquote>{preflight.transmitted_data.user_description}</blockquote>
-        <p>열 이름: {preflight.transmitted_data.column_names_and_types.join(', ')}</p>
-        <p>모델: {preflight.model} · 계획된 호출: {preflight.planned_call_count}회 · 자동 재시도: {preflight.automatic_retries}회</p>
-        <p>{preflight.cost_note}</p>
-        <button type="button" onClick={runCustom} disabled={busy || !preflight.pricing_estimate_available}>
-          {busy ? '후보를 만드는 중...' : 'Claude API 1회 호출 승인'}
-        </button>
-      </div>}
-    </form>}
-    {mismatch && <p className="notice">선택한 두 흐름이 연결되지 않습니다. 유저 플로우에 맞는 관리자 플로우를 선택해 주세요.</p>}
+  if (!proposal) return <section className="panel"><p>서비스 구성을 불러오는 중입니다.</p>{error && <p className="error" role="alert">{error}</p>}</section>;
+  const adminOptions = [
+    ...proposal.recommended.filter((option) => option.template !== 'browse_only'),
+    ...(proposal.recommended.some((option) => option.template === 'browse_only')
+      ? [{ template: 'manage_catalog', name: proposal.data_title || '데이터 관리', implemented: true }] : []),
+  ];
+  const pairedRows = selectedFirst(proposal.recommended.filter((option) => option.template !== 'browse_only'),
+    (option) => selected.some((item) => item.template === option.template));
+  const selectableUserCount = recommendedSelection(proposal.recommended).length;
+  const selectableAdminCount = recommendedSelection(adminOptions).length;
+  return <>
+  <section className="panel data-panel workflow-review" aria-labelledby="workflow-title">
+    <div className="section-title preview-heading">
+      <div><h2 id="workflow-title" className="icon-heading"><SectionIcon name="features" />서비스 기능 선택</h2><p className="preview-note">필요한 기능을 선택하세요. 연결된 사용자·관리자 기능은 함께 선택됩니다.</p></div>
+    </div>
+    {proposal.generation_warning && <p className="notice" role="status">{proposal.generation_warning}</p>}
+    {!proposal.recommended.length && !proposal.generation_warning && <p className="notice">아직 추천 기능이 없습니다. AI 제안을 생성해 주세요.</p>}
+    {proposal.service_summary && <p className="workflow-service-summary">{proposal.service_summary}</p>}
+    <div className="workflow-grid-scroll"><div className="workflow-columns">
+      <section><h3><span className="icon-heading"><SectionIcon name="dashboard" />대시보드</span><span className="workflow-role-count">{dashboard.length}/{proposal.dashboard.filter((item) => item.implemented).length}개 선택</span></h3>{options(proposal.dashboard, 'dashboard')}</section>
+      <section><h3><span className="icon-heading"><SectionIcon name="user" />사용자</span><span className="workflow-role-count">{selected.length}/{selectableUserCount}개 선택</span></h3>{options(proposal.recommended, 'user')}</section>
+      <section><h3><span className="icon-heading"><SectionIcon name="admin" />관리자</span><span className="workflow-role-count">{selected.filter((item) => item.template !== 'browse_only').length + Number(manageData)}/{selectableAdminCount}개 선택</span></h3>{options(adminOptions, 'admin')}</section>
+    </div></div>
+    {proposal.recommended.some((option) => option.template === 'request_review') && proposal.recommended.some((option) => option.template === 'request_auto') &&
+      <p className="workflow-choice-note">신청·승인과 즉시 접수 중 하나만 선택할 수 있습니다.</p>}
+    <form className="workflow-custom" onSubmit={runCustom}>
+      <h3 className="icon-heading"><SectionIcon name="help" />생각하시는 기능이 없나요?</h3>
+      <fieldset className="inquiry-form" disabled={busy}>
+        <label className="workflow-target-field"><span className="workflow-field-label">대상</span><select value={custom} onChange={(event) => { setCustom(event.target.value); setCustomResult(null); }}>
+          <option value="user">사용자</option><option value="admin">관리자</option></select></label>
+        <label className="workflow-content-field"><span className="workflow-field-label">내용</span><textarea rows={2} value={description} placeholder="추가로 필요한 기능을 적어주세요." minLength={10} maxLength={500} required
+          onChange={(event) => { setDescription(event.target.value); setCustomResult(null); }} /></label>
+        <button type="submit" disabled={description.trim().length < 10} aria-label="전송하여 기능 추천받기">{busy ? <><span className="loading-spinner" aria-hidden="true" /><span className="visually-hidden">추천을 준비하고 있습니다.</span></> : '전송'}</button>
+      </fieldset>
+      <p className="workflow-submit-note">입력하신 기능의 지원 여부를 확인합니다.</p>
+    </form>
+      {customResult && <p className="notice" role="status">
+        {customResult.status === 'supported'
+          ? customResult.message.replace('추가할 수 있습니다.', '지원합니다. 위 목록에서 선택해 주세요.')
+          : customResult.message}
+      </p>}
     {error && <p className="error" role="alert">{error}</p>}
-    <div className="workflow-apply"><button type="button" disabled={busy || !selected.user || !selected.admin || mismatch} onClick={apply}>
-      선택한 흐름으로 Preview 생성
-    </button></div>
-    {applied && <div className="workflow-ready"><p>선택한 흐름을 적용했습니다.</p>
-      <a href={`/${uploadId}/User`} target="_blank" rel="noopener noreferrer">User 열기</a>
-      <a href={`/${uploadId}/DashBoard`} target="_blank" rel="noopener noreferrer">Dashboard 열기</a>
-      <a href={`/${uploadId}/Admin`} target="_blank" rel="noopener noreferrer">Admin 열기</a>
+    {applied && !onApplied && <div className="workflow-ready">
+      <a href={`/${uploadId}/User`} target="_blank" rel="noopener noreferrer">유저</a>
+      <a href={`/${uploadId}/DashBoard`} target="_blank" rel="noopener noreferrer">대시보드</a>
+      <a href={`/${uploadId}/Admin`} target="_blank" rel="noopener noreferrer">관리자</a>
     </div>}
-  </section>;
+  </section>
+  <div className="workflow-apply selection-navigation">
+    {onBack && <button type="button" className="service-back-button" disabled={busy} onClick={onBack}>이전</button>}
+    <button type="button" className="workflow-generate" disabled={busy || (!selected.length && !dashboard.length && !manageData)} onClick={apply}>서비스 프리뷰 생성하기</button>
+  </div>
+  </>;
 }

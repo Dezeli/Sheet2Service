@@ -1,0 +1,13 @@
+.inquiry-form { display: grid; align-items: stretch; gap: 16px; }
+.inquiry-form textarea { min-height: 140px; resize: vertical; width: 100%; }
+.inquiry-form > button { justify-self: start; }
+.inquiry-list { display: grid; gap: 12px; margin-top: 20px; }
+.inquiry-item { border: 1px solid var(--line); border-left: 4px solid var(--teal); border-radius: 16px; padding: 18px; background: white; }
+.inquiry-item summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; }
+.inquiry-item summary strong { overflow-wrap: anywhere; }
+.inquiry-item summary .service-badge { flex-shrink: 0; }
+.inquiry-item[open] summary { border-bottom: 1px dashed var(--line); padding-bottom: 12px; margin-bottom: 16px; }
+.inquiry-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.inquiry-answer { background: var(--teal-light); border-radius: 12px; padding: 16px; margin: 16px 0; }
+.inquiry-answer h3 { margin: 0; font-size: .9rem; }
+.inquiry-page .admin-editor { margin-top: 24px; }

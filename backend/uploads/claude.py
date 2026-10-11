@@ -15,7 +15,7 @@ ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 DEFAULT_MODEL = "claude-sonnet-5"
-DEFAULT_MAX_TOKENS = 4000
+DEFAULT_MAX_TOKENS = 8000
 TIMEOUT_SECONDS = 60
 
 
@@ -136,6 +136,8 @@ def run_inference(upload, *, approval_note, approved_at):
             )
             raise InferenceError("Claude API 호출이 실패했습니다.")
         parsed = prepare_preview_response(raw_output, upload.analysis)
+        if response_json.get("stop_reason") == "max_tokens":
+            parsed["validation_error"] = "AI 응답이 출력 토큰 한도에 도달해 중단되었습니다. 다시 생성해 주세요."
         finish_call(
             call,
             status=ModelCall.Status.SUCCEEDED,

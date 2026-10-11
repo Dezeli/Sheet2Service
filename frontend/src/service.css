@@ -1,0 +1,112 @@
+.service-page-header { margin-bottom: 32px; }
+.service-topline, .service-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.service-topline { margin-bottom: 32px; }
+.service-brand { font-size: 1.2rem; font-weight: 800; text-decoration: none; letter-spacing: -.04em; }
+.service-heading-row h1 { font-size: 1.8rem; margin: 0; }
+.service-heading-row .section-icon { width: 36px; height: 36px; }
+.service-source { font-size: .8rem; overflow-wrap: anywhere; text-decoration: none; }
+.service-source:hover { text-decoration: underline; }
+.service-page .service-switch { gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: #e5f0ed; width: fit-content; margin-top: 0; }
+.service-page .service-switch a { display: inline-flex; align-items: center; justify-content: center; min-width: 100px; min-height: 40px; border: 0; border-radius: 8px; color: var(--muted); font-size: .85rem; background: transparent; }
+.service-page .service-switch a[aria-current=page] { background: white; color: var(--teal-dark); box-shadow: 0 1px 4px #21474310; }
+.service-page .service-switch a:hover { color: var(--teal-dark); }
+.service-page button { min-height: 44px; padding: 10px 16px; border: 1px solid transparent; border-radius: 10px; background: var(--gold); box-shadow: none; line-height: 1.5; transition: background-color 160ms ease, border-color 160ms ease; }
+.service-page button:hover:not(:disabled) { background: #f4c82e; box-shadow: none; }
+.service-page button:active:not(:disabled) { transform: none; }
+.service-page .service-back-button { margin-bottom: 0; background: white; border-color: #a2c6c0; color: var(--teal-dark); }
+.service-page .service-back-button:hover:not(:disabled) { background: var(--teal-light); border-color: #76ada5; }
+.service-page .admin-danger { background: #fff0eb; border-color: #e9b9aa; color: #a7442c; }
+.service-page .admin-danger:hover:not(:disabled) { background: #ffe2d8; }
+.service-page .feature-tabs { padding-bottom: 20px; margin: 0 0 24px; border-bottom: 1px solid var(--line); gap: 10px; }
+.service-page .feature-tabs button { display: inline-flex; align-items: center; gap: 8px; background: white; border-color: var(--line); color: var(--muted); font-size: .85rem; }
+.service-page .feature-tabs button[aria-pressed=true] { background: var(--cream); border-color: #e6c966; color: var(--ink); }
+.service-page .feature-tabs button:hover:not(:disabled) { background: var(--teal-light); }
+.service-page .feature-tabs .section-icon { width: 22px; height: 22px; background: transparent; }
+.service-page .feature-tabs .section-icon svg { width: 17px; height: 17px; }
+.service-page .panel, .service-page .admin-shell { border-radius: 16px; box-shadow: none; }
+.service-page .panel { padding: 28px; margin: 20px 0; }
+.service-page h2 { font-size: 1.15rem; margin-bottom: 20px; }
+.service-page h3 { font-size: 1rem; }
+.service-page .section-title { border-bottom: 1px solid #e6efec; padding-bottom: 18px; margin-bottom: 22px; align-items: center; }
+.service-page .section-title h2, .service-page .section-title h3 { margin: 0; }
+.service-page .muted { line-height: 1.8; }
+.service-page .panel > .muted { padding-left: 12px; }
+.service-page .inquiry-form { margin: 20px 0 0; gap: 20px; }
+.service-page label { min-width: 0; gap: 9px; font-size: .82rem; color: var(--muted); }
+.service-page input:not([type=checkbox]):not([type=radio]), .service-page select, .service-page textarea { background: #fafcfb; border-color: #c9ded9; border-radius: 10px; font-size: .9rem; }
+.service-page textarea { min-height: 104px; }
+.service-page .inquiry-form > label > input, .service-page .inquiry-form > label > select { width: 100%; }
+.service-page .admin-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.service-page .admin-row-actions button { min-height: 44px; }
+.service-page .inquiry-list { gap: 14px; }
+.service-page .inquiry-item, .service-page .user-item, .service-page .service-card, .service-page .admin-field-card { border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: none; }
+.service-page .inquiry-item { padding: 20px; }
+.service-page .inquiry-item summary { gap: 16px; min-height: 24px; }
+.service-page .inquiry-item summary strong { font-size: .95rem; font-weight: 650; }
+.service-page .inquiry-item[open] summary { border-bottom: 1px solid #e6efec; padding-bottom: 16px; margin-bottom: 20px; }
+.service-page .service-badge { font-size: .75rem; font-weight: 600; padding: 4px 10px; }
+.service-page .inquiry-answer { background: #f0f7f5; padding: 18px; border-radius: 10px; }
+.service-page .admin-editor { background: #f8fbfa; border-radius: 12px; padding: 24px; }
+.service-page .admin-editor h3 { margin: 0 0 20px; }
+.service-page .metrics { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin: 0; }
+.service-page .metrics > div { background: #f5f9f7; padding: 20px; border-radius: 12px; }
+.service-page .metrics dt { font-size: .8rem; }
+.service-page .metrics dd { font-size: 1.8rem; font-weight: 700; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.service-page .service-pagination { justify-content: flex-end; gap: 12px; }
+.service-page .service-pagination button { min-width: 100px; background: white; color: var(--teal-dark); border-color: #a2c6c0; }
+.service-page .service-pagination button:hover:not(:disabled) { background: var(--teal-light); }
+.service-page .service-pagination span { color: var(--muted); font-size: .8rem; }
+.service-page .table-scroll, .service-page .service-table-scroll { border: 1px solid #e1ebe8; border-radius: 12px; max-height: 560px; overflow: auto; }
+.service-page table { font-size: .85rem; }
+.service-page th, .service-page td, .service-page .service-table th, .service-page .service-table td { padding: 12px; vertical-align: top; border-bottom: 1px solid #edf2f0; border-right: 1px solid #e8eeec; }
+.service-page table tr > :last-child { border-right: 0; }
+.service-page thead th, .service-page .service-table thead th { background: #f1f6f4; color: var(--ink); font-weight: 650; white-space: normal; }
+.service-page tbody tr:nth-child(even) td { background: #fafcfb; }
+.service-page tbody tr:hover td { background: #f0f8f5; }
+.service-page .service-table-value { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .service-table .service-title-button { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .admin-sidebar { padding: 24px 16px; background: #f3f8f6; }
+.service-page .admin-sidebar button { margin: 0; text-align: left; background: transparent; color: var(--muted); font-size: .85rem; }
+.service-page .admin-sidebar button[aria-current=page] { background: white; color: var(--teal-dark); border-color: var(--line); }
+.service-page .admin-sidebar button:hover:not(:disabled) { background: #e8f3ef; }
+.service-page .admin-heading h2 { font-size: 1.2rem; margin: 0; }
+.service-page .admin-heading > span { font-size: .8rem; color: var(--muted); }
+.service-page .user-intro { padding: 22px 24px; border-radius: 12px; background: #e8f3ef; }
+.service-page .user-intro h2 { font-size: 1.2rem; margin: 0; }
+.service-page .user-intro ol { font-size: .85rem; line-height: 1.8; }
+.service-page .service-runtime { border-top: 0; padding-top: 0; margin-top: 24px; }
+.service-page .service-preview-meta { font-size: .8rem; gap: 20px; }
+.service-page .service-preview-meta span { border: 0; padding: 0; }
+.service-page .service-view-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.service-page .service-view-tabs button { min-height: 40px; background: white; border-color: var(--line); color: var(--muted); }
+.service-page .service-view-tabs button[aria-current=page], .service-page .service-view-tabs button:hover:not(:disabled) { background: var(--teal-light); border-color: #91bfb5; color: var(--teal-dark); }
+.service-page .service-title-button { min-height: 0; padding: 0; border: 0; background: transparent; border-radius: 4px; color: var(--ink); line-height: 1.6; }
+.service-page .service-title-button:hover:not(:disabled) { background: transparent; color: var(--teal-dark); text-decoration: underline; }
+.service-page .service-chart { border: 1px solid var(--line); border-radius: 12px; box-shadow: none; }
+.service-page .notice, .service-page .error { border-radius: 10px; font-size: .85rem; line-height: 1.8; }
+.service-page .list-controls { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; margin: 0 0 24px; padding: 16px; border-radius: 12px; background: #f5f9f7; }
+.list-controls .list-search { flex: 1; min-width: 180px; }
+.list-controls label > span { padding-left: 12px; }
+.list-controls label:not(.list-search) { max-width: 220px; }
+.list-controls input, .list-controls select { width: 100%; height: 44px; }
+.catalog-list { border-top: 1px solid var(--line); }
+.catalog-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 12px; border-bottom: 1px solid #e6efec; }
+.catalog-row-content { flex: 1; min-width: 0; }
+.catalog-row h3 { margin: 0 0 12px; }
+.catalog-summary { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; }
+.catalog-summary > div { min-width: 0; max-width: 240px; }
+.catalog-summary dt { font-size: .72rem; }
+.catalog-summary dd { margin: 3px 0 0; font-size: .83rem; font-weight: 400; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.catalog-detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 20px 32px; }
+.catalog-detail dt { font-size: .78rem; }
+.catalog-detail dd { margin: 6px 0 0; font-size: .9rem; font-weight: 400; overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 680px) { .catalog-row { align-items: flex-start; flex-direction: column; gap: 16px; } .list-controls label:not(.list-search) { flex: 1; max-width: none; min-width: 130px; } }
+@media (max-width: 680px) {
+  .service-page .panel { padding: 20px; }
+  .service-topline { margin-bottom: 24px; }
+  .service-source { width: 100%; padding-left: 12px; }
+  .service-page .service-switch { width: 100%; }
+  .service-page .service-switch a { flex: 1; min-width: 0; }
+  .service-page .feature-tabs button { max-width: 100%; }
+  .service-page .admin-editor { padding: 18px; }
+}

@@ -3,6 +3,7 @@ import Charts from './Charts.jsx';
 import { recordsFromRows, safeWebUrl } from './config.js';
 import { chartConfigsV2, columnId, columnLabel, validateConfigV2 } from './configV2.js';
 import './preview.css';
+import SectionIcon from '../components/SectionIcon';
 
 const labels = { cards: '카드 목록', table: '표 목록', grouped: '그룹 목록' };
 const display = (value) => value === null || value === undefined || String(value).trim() === '' ? '빈 값' : String(value);
@@ -52,7 +53,7 @@ function Table({ view, records, columns, openDetail }) {
       <tbody>{records.map((record) => <tr key={record.id}>{view.columns.map((number, index) => <td key={number}>
         {index === 0 ? <button type="button" className="service-title-button" onClick={() => openDetail(record.id)}
           aria-label={`${fieldValue(record, columns, number)} 상세 보기`}>{fieldValue(record, columns, number)}</button>
-          : fieldValue(record, columns, number)}
+          : <span className="service-table-value" title={fieldValue(record, columns, number)}>{fieldValue(record, columns, number)}</span>}
       </td>)}</tr>)}</tbody>
     </table>
   </div>;
@@ -77,13 +78,12 @@ function ValidatedRuntime({ config, columns, records, chartAggregates }) {
     {record ? <>
       <button type="button" className="service-back-button" onClick={() => setSelectedRecord(null)}>목록으로 돌아가기</button>
       <h2>항목 상세</h2>
-      <p className="muted">선택한 CSV 행의 모든 컬럼입니다.</p>
       <Fields record={record} columns={columns} numbers={columns.map((_, index) => index + 1)} />
     </> : <>
       <nav className="service-view-tabs" aria-label="서비스 미리보기 화면 선택">
         {config.views.map((item, index) => <button type="button" key={index}
           aria-current={index === selectedIndex ? 'page' : undefined} onClick={() => setSelectedIndex(index)}>
-          <strong>{labels[item.template]} {index + 1}</strong>
+          <strong>{labels[item.template]}{config.views.filter((candidate) => candidate.template === item.template).length > 1 ? ` ${index + 1}` : ''}</strong>
         </button>)}
       </nav>
       <h2>{labels[view.template]}</h2>
@@ -161,14 +161,14 @@ export default function ServicePreviewV2({ uploadId, report, config, usedFallbac
   }
 
   return <section className="panel" aria-labelledby="service-preview-title">
-    <div className="section-title"><h2 id="service-preview-title">서비스 미리보기</h2>
-      <button type="button" onClick={() => setOpened(!opened)} aria-expanded={opened}>
-        {opened ? '미리보기 접기' : '미리보기 펼치기'}
+    <div className="section-title"><h2 id="service-preview-title" className="icon-heading"><SectionIcon name="analysis" />데이터 통계</h2>
+      <button type="button" className="service-back-button" onClick={() => setOpened(!opened)} aria-expanded={opened}>
+        {opened ? '접기' : '펼치기'}
       </button></div>
     <p className="muted">{browseAll
-      ? `CSV 전체 ${report.row_count.toLocaleString()}개 항목을 20개씩 탐색합니다. 그래프는 전체 행 기준입니다.`
-      : `CSV의 앞 ${records.length.toLocaleString()}개 항목을 보여줍니다.`} 저장 기능은 아직 제공하지 않습니다.</p>
-    {usedFallback && <p className="notice">Claude 설정을 적용할 수 없어 전체 컬럼 표를 표시합니다.</p>}
+      ? `전체 ${report.row_count.toLocaleString()}개 항목 · 그래프는 전체 데이터 기준입니다.`
+      : `처음 ${records.length.toLocaleString()}개 항목 기준입니다.`}</p>
+    {usedFallback && <p className="notice">기본 표 형식으로 표시합니다.</p>}
     {opened && <>
       {report.row_count > 20 && <button type="button" className="service-back-button"
         disabled={loading}

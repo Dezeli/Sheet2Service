@@ -67,3 +67,34 @@ class ManagedApiTests(APITestCase):
         other = APIClient()
         self.assertEqual(other.get(self.base + "managed-rows/").status_code, 404)
         self.assertEqual(other.get(self.base + "choices/?column=1").status_code, 404)
+
+    def test_search_and_filter_cover_rows_beyond_first_page(self):
+        upload = Upload.objects.get(pk=self.upload_id)
+        for number in range(4, 29):
+            ManagedRow.objects.create(upload=upload, row_number=number,
+                                      values=[f"target {number}", "room" if number % 2 == 0 else "park"])
+        response = self.client.get(self.base + "managed-rows/", {"q": "TARGET", "filter_column": 2, "filter_value": "room"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["row_count"], 13)
+        self.assertTrue(all(row["values"][1] == "room" for row in response.data["rows"]))
+        self.assertIn("target 28", [row["values"][0] for row in response.data["rows"]])
+        response = self.client.get(self.base + "managed-rows/", {"q": "target", "page": 2})
+        self.assertEqual(len(response.data["rows"]), 5)
+        self.assertEqual(response.data["row_count"], 25)
+        self.assertEqual(ModelCall.objects.count(), 0)
+
+    def test_search_handles_literal_characters_and_empty_results(self):
+        upload = Upload.objects.get(pk=self.upload_id)
+        ManagedRow.objects.create(upload=upload, row_number=4, values=['서울 "100%_"', "room"])
+        response = self.client.get(self.base + "managed-rows/", {"q": '서울 "100%_"'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["row_count"], 1)
+        response = self.client.get(self.base + "managed-rows/", {"q": "absent"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["rows"], [])
+        self.assertEqual(response.data["row_count"], 0)
+
+    def test_filter_rejects_invalid_column_and_remains_session_scoped(self):
+        for params in ({"filter_column": "bad"}, {"filter_column": 3}, {"filter_value": "room"}, {"q": "x" * 201}):
+            self.assertEqual(self.client.get(self.base + "managed-rows/", params).status_code, 400)
+        self.assertEqual(APIClient().get(self.base + "managed-rows/", {"q": "A", "filter_column": 2, "filter_value": "park"}).status_code, 404)

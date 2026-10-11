@@ -108,7 +108,7 @@ def _normalize(raw, report):
                            parse_constant=lambda _: _fail("유효하지 않은 JSON 상수입니다."))
     except (ValueError, RecursionError) as exc:
         raise InvalidPreviewResponse("유효한 JSON 응답이 아닙니다.") from exc
-    _keys(value, ("version", "views", "serviceSummary", "userFlows", "adminFlows"), ("version", "views"))
+    _keys(value, ("version", "views", "serviceSummary", "serviceSubject", "userFlows", "adminFlows"), ("version", "views"))
     if type(value["version"]) is not int or value["version"] != 2:
         _fail("지원하지 않는 Preview 설정 버전입니다.")
     if not isinstance(value["views"], list) or not value["views"]:
@@ -130,7 +130,8 @@ def _normalize(raw, report):
         return preview, {"service_summary": "", "user_flows": [], "admin_flows": []}, ""
     try:
         proposal = normalize_proposal({key: value.get(key) for key in
-                                       ("serviceSummary", "userFlows", "adminFlows")}, report)
+                                       ("serviceSummary", "userFlows", "adminFlows")}
+                                      | ({"serviceSubject": value["serviceSubject"]} if "serviceSubject" in value else {}), report)
         return preview, proposal, ""
     except ValueError as exc:
         return preview, {"service_summary": "", "user_flows": [], "admin_flows": []}, str(exc)

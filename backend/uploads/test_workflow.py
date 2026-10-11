@@ -27,13 +27,30 @@ def admin_flow(template="review_requests"):
 
 
 class WorkflowSchemaTests(APITestCase):
+    def test_contextual_titles_survive_normalization_and_reject_multiline(self):
+        report = analyze(b"name,kind\nA,park\nB,room\n")
+        titles = {"user": "체육시설 이용 신청", "admin": "체육시설 신청 승인"}
+        flow = {**user_flow(), "titles": titles}
+        result = prepare_preview_response(json.dumps({
+            "version": 2, "views": [{"template": "table", "columns": [1, 2]}],
+            "serviceSummary": "시설 목록을 활용한 서비스를 추천합니다. " * 12, "serviceSubject": "체육시설",
+            "userFlows": [flow], "adminFlows": [{**admin_flow(), "titles": titles}],
+        }), report)
+        self.assertEqual(result["service_subject"], "체육시설")
+        self.assertEqual(result["user_flows"][0]["titles"], titles)
+        for invalid in ["신청\n접수", "a" * 49, " "]:
+            with self.assertRaises(ValueError):
+                normalize_flow({**flow, "titles": {**titles, "user": invalid}}, "user", report)
+
     def test_model_output_limits_both_flow_templates_and_validates_response(self):
         report = analyze(b"name,kind\nA,park\nB,room\n")
         schema = build_schema(report)
         self.assertEqual(schema["properties"]["userFlows"]["items"]["properties"]["template"]["enum"],
-                         ["request_review", "request_auto", "browse_only"])
+                         ["browse_only", "inquiry", "request_review", "request_auto", "notice", "reservation", "rental", "quote"])
         self.assertEqual(schema["properties"]["adminFlows"]["items"]["properties"]["subjectColumn"]["enum"],
-                         [1, 2])
+                         [0, 1, 2])
+        with self.assertRaises(ValueError):
+            normalize_flow({**user_flow(), "subjectColumn": 0}, "user", report)
         raw = json.dumps({"version": 2, "views": [{"template": "table", "columns": [1, 2]}],
                           "serviceSummary": "시설을 소개하는 서비스 목록으로 보입니다.",
                           "userFlows": [user_flow()], "adminFlows": [admin_flow()]}, ensure_ascii=False)
