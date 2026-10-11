@@ -1,4 +1,6 @@
 """Service data and shared choice management APIs, scoped to the upload session."""
+from collections import Counter
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -9,7 +11,7 @@ from rest_framework.response import Response
 
 from .analysis import missing
 from .managed import ensure_imported, next_row_number, value_hash
-from .models import FieldChoice, ManagedRow
+from .models import FieldChoice, ManagedRow, Upload
 from .views import SessionView, owned
 
 
@@ -41,6 +43,60 @@ def _values(upload, values, previous=None):
 
 def _row_payload(row):
     return {"id": str(row.id), "row_number": row.row_number, "values": row.values}
+
+
+def _usage(upload, choice):
+    return ManagedRow.objects.filter(upload=upload, **{f"values__{choice.column_number - 1}": choice.value})
+
+
+def _disable_choice(upload, choice, replacement_id=None, expected_usage=None, replacement_value=None):
+    rows = _usage(upload, choice)
+    count = rows.count()
+    if expected_usage is not None and (type(expected_usage) is not int or expected_usage != count):
+        raise ValidationError({"detail": "사용 건수가 변경됐습니다. 다시 확인해 주세요."})
+    if count:
+        if not replacement_id or expected_usage is None:
+            raise ValidationError({"detail": "사용 중인 데이터의 대체 선택지를 지정해 주세요.", "usage_count": count})
+        try:
+            replacement_id = UUID(str(replacement_id))
+        except (ValueError, TypeError) as exc:
+            raise ValidationError({"detail": "대체 선택지가 올바르지 않습니다."}) from exc
+        replacement = FieldChoice.objects.filter(pk=replacement_id, upload=upload,
+            column_number=choice.column_number, active=True).exclude(pk=choice.pk).first()
+        if replacement is None:
+            raise ValidationError({"detail": "같은 필드의 다른 활성 선택지를 지정해 주세요."})
+        if replacement_value is not None and replacement.value != replacement_value:
+            raise ValidationError({"detail": "대체 선택지가 변경됐습니다. 다시 확인해 주세요."})
+        changed = []
+        for row in rows.select_for_update().iterator(chunk_size=500):
+            row.values[choice.column_number - 1] = replacement.value
+            changed.append(row)
+        ManagedRow.objects.bulk_update(changed, ["values"], batch_size=500)
+    choice.active = False
+    return count
+
+
+class FieldLabelView(SessionView):
+    parser_classes = [JSONParser]
+
+    def patch(self, request, pk, column):
+        upload = owned(request, pk)
+        _column(upload, column)
+        if not isinstance(request.data, dict) or set(request.data) != {"label"}:
+            raise ValidationError({"detail": "변경할 필드명을 전달해 주세요."})
+        label = request.data["label"]
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > 120 or any(ord(char) < 32 for char in label):
+            raise ValidationError({"detail": "필드명은 줄바꿈 없이 1~120자로 입력해 주세요."})
+        with transaction.atomic():
+            locked = Upload.objects.select_for_update().get(pk=upload.pk)
+            labels = dict(locked.field_labels)
+            if label.strip() == locked.analysis["columns"][column - 1]["label"]:
+                labels.pop(str(column), None)
+            else:
+                labels[str(column)] = label.strip()
+            locked.field_labels = labels
+            locked.save(update_fields=["field_labels"])
+        return Response({"column": column, "label": label.strip(), "field_labels": labels})
 
 
 class ManagedRowsView(SessionView):
@@ -104,6 +160,7 @@ class ManagedRowView(SessionView):
         if not isinstance(request.data, dict):
             raise ValidationError({"detail": "데이터 형식이 올바르지 않습니다."})
         with transaction.atomic():
+            Upload.objects.select_for_update().get(pk=upload.pk)
             row = get_object_or_404(ManagedRow.objects.select_for_update(), pk=row_id, upload=upload)
             row.values = _values(upload, request.data.get("values"), previous=row.values)
             row.save(update_fields=["values"])
@@ -112,8 +169,10 @@ class ManagedRowView(SessionView):
     def delete(self, request, pk, row_id):
         upload = owned(request, pk)
         ensure_imported(upload)
-        row = get_object_or_404(ManagedRow, pk=row_id, upload=upload)
-        row.delete()
+        with transaction.atomic():
+            Upload.objects.select_for_update().get(pk=upload.pk)
+            row = get_object_or_404(ManagedRow, pk=row_id, upload=upload)
+            row.delete()
         return Response(status=204)
 
 
@@ -129,8 +188,9 @@ class FieldChoicesView(SessionView):
             raise ValidationError({"detail": "필드 번호가 필요합니다."}) from exc
         _column(upload, number)
         choices = FieldChoice.objects.filter(upload=upload, column_number=number)
+        counts = Counter(ManagedRow.objects.filter(upload=upload).values_list(f"values__{number - 1}", flat=True).iterator(chunk_size=500))
         return Response({"column": number, "choices": [
-            {"id": str(choice.id), "value": choice.value, "active": choice.active}
+            {"id": str(choice.id), "value": choice.value, "active": choice.active, "usage_count": counts[choice.value]}
             for choice in choices]})
 
     def post(self, request, pk):
@@ -153,13 +213,27 @@ class FieldChoicesView(SessionView):
 class FieldChoiceView(SessionView):
     parser_classes = [JSONParser]
 
+    def get(self, request, pk, choice_id):
+        upload = owned(request, pk)
+        ensure_imported(upload)
+        choice = get_object_or_404(FieldChoice, pk=choice_id, upload=upload)
+        return Response({"id": str(choice.id), "value": choice.value, "active": choice.active,
+                         "usage_count": _usage(upload, choice).count()})
+
     def patch(self, request, pk, choice_id):
         upload = owned(request, pk)
         ensure_imported(upload)
-        if not isinstance(request.data, dict) or not request.data or any(key not in ("value", "active") for key in request.data):
+        if not isinstance(request.data, dict) or not request.data or any(key not in ("value", "active", "replacement_id", "replacement_value", "expected_usage", "expected_value") for key in request.data):
             raise ValidationError({"detail": "후보 값 또는 사용 여부만 변경할 수 있습니다."})
         with transaction.atomic():
+            Upload.objects.select_for_update().get(pk=upload.pk)
             choice = get_object_or_404(FieldChoice.objects.select_for_update(), pk=choice_id, upload=upload)
+            if any(key in request.data for key in ("replacement_id", "replacement_value", "expected_usage", "expected_value")) and request.data.get("active") is not False:
+                raise ValidationError({"detail": "대체 값은 사용 중지할 때만 지정할 수 있습니다."})
+            if "value" in request.data and request.data.get("active") is False:
+                raise ValidationError({"detail": "이름 변경과 사용 중지는 각각 처리해 주세요."})
+            if "expected_value" in request.data and choice.value != request.data["expected_value"]:
+                raise ValidationError({"detail": "선택지가 변경됐습니다. 다시 확인해 주세요."})
             if "value" in request.data:
                 value = request.data["value"]
                 if not isinstance(value, str) or not value.strip() or len(value) > 100_000:
@@ -182,14 +256,19 @@ class FieldChoiceView(SessionView):
             if "active" in request.data:
                 if type(request.data["active"]) is not bool:
                     raise ValidationError({"detail": "사용 여부는 참 또는 거짓이어야 합니다."})
-                choice.active = request.data["active"]
+                if request.data["active"]:
+                    choice.active = True
+                else:
+                    _disable_choice(upload, choice, request.data.get("replacement_id"), request.data.get("expected_usage"), request.data.get("replacement_value"))
             choice.save(update_fields=["value", "value_hash", "active"])
         return Response({"id": str(choice.id), "value": choice.value, "active": choice.active})
 
     def delete(self, request, pk, choice_id):
         upload = owned(request, pk)
         ensure_imported(upload)
-        choice = get_object_or_404(FieldChoice, pk=choice_id, upload=upload)
-        choice.active = False
-        choice.save(update_fields=["active"])
+        with transaction.atomic():
+            Upload.objects.select_for_update().get(pk=upload.pk)
+            choice = get_object_or_404(FieldChoice.objects.select_for_update(), pk=choice_id, upload=upload)
+            _disable_choice(upload, choice)
+            choice.save(update_fields=["active"])
         return Response(status=204)

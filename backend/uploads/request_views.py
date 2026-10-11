@@ -3,7 +3,7 @@
 import uuid
 
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
@@ -50,6 +50,22 @@ class ServiceRequestsView(SessionView):
         items = ServiceRequest.objects.filter(upload=upload)
         if request.query_params.get("mine") == "1":
             items = items.filter(created_by_session=request.session.session_key or "")
+        query = request.query_params.get("q", "").strip()
+        if len(query) > 200:
+            raise ValidationError({"detail": "검색어는 200자 이하로 입력해 주세요."})
+        if query:
+            items = items.filter(Q(subject_snapshot__icontains=query) | Q(content__icontains=query) | Q(processing_note__icontains=query))
+        status = request.query_params.get("status", "")
+        if status:
+            if status not in ServiceRequest.Status.values:
+                raise ValidationError({"detail": "신청 상태가 올바르지 않습니다."})
+            items = items.filter(status=status)
+        sort = request.query_params.get("sort", "-created_at")
+        orders = {"created_at": "created_at", "-created_at": "-created_at", "subject": "subject_snapshot",
+                  "-subject": "-subject_snapshot", "status": "status", "-status": "-status"}
+        if sort not in orders:
+            raise ValidationError({"detail": "정렬 기준이 올바르지 않습니다."})
+        items = items.order_by(orders[sort], "id")
         try:
             page = int(request.query_params.get("page", "1"))
         except ValueError as exc:

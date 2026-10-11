@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import ServiceDialog from '../components/ServiceDialog';
 import '../inquiry/inquiry.css';
 
 const statuses = { pending: '견적 대기', quoted: '견적 도착', accepted: '수락', declined: '견적 거절',
@@ -60,11 +61,10 @@ export default function QuotePage({ uploadId, config, admin = false }) {
       : { action, amount: editor.amount, currency: editor.currency, proposal: editor.proposal });
   }
 
-  return <div className="inquiry-page">
+  return <div className="inquiry-page template-workspace">
     <h2>{config[admin ? 'admin' : 'user'].title || (admin ? '견적 관리' : '견적 요청')}</h2>
     {error && <p className="error" role="alert">{error}</p>}
-    {message && <p className="notice" role="status">{message}</p>}
-    {!admin && <section className="panel"><h3>견적 요청</h3>
+    {!admin && <section className="panel workspace-main"><h3>견적 요청</h3>
       <form onSubmit={(event) => { event.preventDefault(); mutate(null, { row_id: rowId, content }); }}>
         <fieldset disabled={busy} className="inquiry-form">
           <label>항목<select required value={rowId} onChange={(event) => setRowId(event.target.value)}>
@@ -82,7 +82,7 @@ export default function QuotePage({ uploadId, config, admin = false }) {
         </fieldset>
       </form>
     </section>}
-    <section className="panel"><div className="section-title"><h3>{admin ? '견적 요청 내역' : '내 견적 요청'}</h3>
+    <section className={`panel ${admin ? 'workspace-main' : 'workspace-side'}`}><div className="section-title"><h3>{admin ? '견적 요청 내역' : '내 견적 요청'}</h3>
       <button type="button" className="service-back-button" disabled={busy} onClick={() => load(list.page).catch((caught) => setError(caught.message))}>새로고침</button></div>
       {!list.quotes.length && <p className="muted">견적 요청이 없습니다.</p>}
       <div className="inquiry-list">{list.quotes.map((item) => <details key={item.id} className="inquiry-item">
@@ -96,16 +96,17 @@ export default function QuotePage({ uploadId, config, admin = false }) {
           id: item.id, subject: item.subject, status: item.status, amount: item.amount || '', currency: item.currency || 'KRW',
           proposal: item.proposal, processing_note: item.processing_note, action: item.admin_actions[0],
         })}>{item.status === 'pending' ? '견적 작성·전달' : '진행 관리'}</button>}
-        {!admin && item.user_actions.map((action) => <button type="button" key={action} disabled={busy || !csrf}
+        {!admin && item.user_actions.map((action) => <button type="button" key={action} data-intent={action === 'accept' ? 'primary' : action === 'decline' ? 'danger' : 'secondary'} disabled={busy || !csrf}
           onClick={() => mutate(item.id, { action })}>{actions[action]}</button>)}
       </details>)}</div>
+      {message && <p className="notice" role="status">{message}</p>}
       <nav className="service-pagination" aria-label="견적 요청 페이지">
         <button type="button" disabled={busy || list.page === 1} onClick={() => load(list.page - 1).catch((caught) => setError(caught.message))}>이전</button>
         <span>{list.page} / {Math.max(1, Math.ceil(list.count / 20))}</span>
         <button type="button" disabled={busy || !list.has_next} onClick={() => load(list.page + 1).catch((caught) => setError(caught.message))}>다음</button>
       </nav>
     </section>
-    {admin && editor && <section className="panel"><h3>{editor.subject}</h3>
+    {admin && editor && <ServiceDialog title={editor.subject} busy={busy} error={error} onClose={() => setEditor(null)}>
       <form onSubmit={editor.status === 'pending' ? saveOffer : (event) => { event.preventDefault();
         mutate(editor.id, { action: editor.action, processing_note: editor.processing_note }); }}>
         <fieldset disabled={busy} className="inquiry-form">
@@ -116,10 +117,10 @@ export default function QuotePage({ uploadId, config, admin = false }) {
             </select></label>
             <label>제안 내용<textarea required maxLength={5000} value={editor.proposal} onChange={(event) => setEditor({ ...editor, proposal: event.target.value })} /></label>
             <p className="muted">전달 후 금액·제안은 변경할 수 없습니다.</p>
-            <button type="submit" value="save" disabled={!csrf}>초안 저장</button>
+            <button type="submit" data-intent="secondary" value="save" disabled={!csrf}>초안 저장</button>
             <button type="submit" value="send" disabled={!csrf}>견적 전달</button>
             <label>요청 거절 사유 (선택)<textarea maxLength={5000} value={editor.processing_note} onChange={(event) => setEditor({ ...editor, processing_note: event.target.value })} /></label>
-            <button type="submit" value="reject" formNoValidate disabled={!csrf}>요청 거절</button>
+            <button type="submit" data-intent="danger" value="reject" formNoValidate disabled={!csrf}>요청 거절</button>
           </> : <>
             <label>처리 메모 (선택)<textarea maxLength={5000} value={editor.processing_note} onChange={(event) => setEditor({ ...editor, processing_note: event.target.value })} /></label>
             <button type="submit" disabled={!csrf}>{actions[editor.action]}</button>
@@ -127,6 +128,6 @@ export default function QuotePage({ uploadId, config, admin = false }) {
           <button type="button" onClick={() => setEditor(null)}>닫기</button>
         </fieldset>
       </form>
-    </section>}
+    </ServiceDialog>}
   </div>;
 }

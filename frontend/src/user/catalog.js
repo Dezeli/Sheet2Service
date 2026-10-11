@@ -1,6 +1,6 @@
 export function publicColumns(columns) {
   return columns.map((column, index) => ({ ...column, number: index + 1 }))
-    .filter((column) => !/(?:^|[_\s-])(?:id|uuid|identifier)(?:$|[_\s-])|(?:아이디|식별자|식별번호|고유번호|관리번호|서비스\s*id)/i.test(column.label));
+    .filter((column) => !/(?:^|[_\s-])(?:id|uuid|identifier)(?:$|[_\s-])|(?:아이디|식별자|식별번호|고유번호|관리번호|서비스\s*id)/i.test(column.original_label || column.label));
 }
 
 export function summaryColumns(columns, subjectColumn) {

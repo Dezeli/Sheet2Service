@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import ServiceDialog from '../components/ServiceDialog';
 import '../inquiry/inquiry.css';
 
 async function api(url, options = {}) {
@@ -47,10 +48,9 @@ export default function NoticePage({ uploadId, config, admin = false }) {
 
   return <div className="inquiry-page">
     {error && <p className="error" role="alert">{error}</p>}
-    {message && <p className="notice" role="status">{message}</p>}
     <section className="panel">
       <div className="section-title"><h2>{config[admin ? 'admin' : 'user'].title || (admin ? '공지 관리' : '공지')}</h2>
-        {admin && <button type="button" disabled={busy} onClick={() => {
+        {admin && <button type="button" data-intent="primary" disabled={busy} onClick={() => {
           setEditor({ title: '', body: '', is_published: false }); setError(''); setMessage('');
         }}>공지 작성</button>}
         <button type="button" disabled={busy} className="service-back-button"
@@ -68,13 +68,14 @@ export default function NoticePage({ uploadId, config, admin = false }) {
           setError(''); setMessage('');
         }}>수정·게시 관리</button>}
       </details>)}</div>
+      {message && <p className="notice" role="status">{message}</p>}
       <nav className="service-pagination" aria-label="공지 페이지">
         <button type="button" disabled={busy || list.page === 1} onClick={() => load(list.page - 1).catch((caught) => setError(caught.message))}>이전</button>
         <span>{list.page} / {Math.max(1, Math.ceil(list.count / 20))}</span>
         <button type="button" disabled={busy || !list.has_next} onClick={() => load(list.page + 1).catch((caught) => setError(caught.message))}>다음</button>
       </nav>
     </section>
-    {admin && editor && <section className="panel"><h3>{editor.id ? '공지 수정' : '공지 작성'}</h3>
+    {admin && editor && <ServiceDialog title={editor.id ? '공지 수정' : '공지 작성'} busy={busy} error={error} onClose={() => setEditor(null)}>
       <form onSubmit={save}><fieldset disabled={busy} className="inquiry-form">
         <label>제목<input required maxLength={120} value={editor.title} onChange={(event) => setEditor({ ...editor, title: event.target.value })} /></label>
         <label>내용<textarea required maxLength={10000} value={editor.body} onChange={(event) => setEditor({ ...editor, body: event.target.value })} /></label>
@@ -84,6 +85,6 @@ export default function NoticePage({ uploadId, config, admin = false }) {
         <button type="submit" disabled={!csrf || !editor.title.trim() || !editor.body.trim()}>저장</button>
         <button type="button" onClick={() => setEditor(null)}>닫기</button>
       </fieldset></form>
-    </section>}
+    </ServiceDialog>}
   </div>;
 }

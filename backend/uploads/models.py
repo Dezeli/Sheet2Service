@@ -18,6 +18,7 @@ class Upload(models.Model):
     analysis = models.JSONField(null=True)
     managed = models.BooleanField(default=False)
     workflow_config = models.JSONField(null=True, blank=True)
+    field_labels = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 

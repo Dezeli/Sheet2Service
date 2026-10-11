@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './inquiry.css';
+import ServiceDialog from '../components/ServiceDialog';
 
 const labels = { received: '접수', in_progress: '처리 중', resolved: '완료' };
 async function api(url, options = {}) {
@@ -64,8 +65,9 @@ export default function InquiryPage({ uploadId, config, admin = false }) {
     } finally { working.current = false; setBusy(false); }
   }
 
-  return <div className="inquiry-page">
-    {!admin && <section className="panel"><h2>문의하기</h2>
+  return <div className="inquiry-page template-workspace">
+    {error && <p className="error" role="alert">{error}</p>}
+    {!admin && <section className="panel workspace-main"><h2>문의하기</h2>
       <form onSubmit={save}><fieldset disabled={busy} className="inquiry-form">
         {column > 0 && <div>
           <label>관련 항목 (선택)<select value={rowId} onChange={(event) => setRowId(event.target.value)}>
@@ -84,9 +86,7 @@ export default function InquiryPage({ uploadId, config, admin = false }) {
         <button type="submit" disabled={!csrf || !title.trim() || !body.trim()}>{busy ? '접수 중...' : '문의 접수'}</button>
       </fieldset></form>
     </section>}
-    {error && <p className="error" role="alert">{error}</p>}
-    {message && <p className="notice" role="status">{message}</p>}
-    <section className={admin ? '' : 'panel'}>
+    <section className={admin ? 'panel workspace-main' : 'panel workspace-side'}>
       <div className="section-title"><h2>{admin ? '문의 관리' : '내 문의'}</h2>
         <button type="button" className="service-back-button" disabled={busy} onClick={() => load(list.page).catch((caught) => setError(caught.message))}>새로고침</button></div>
       {!list.inquiries.length && <p className="muted">문의가 없습니다.</p>}
@@ -97,14 +97,15 @@ export default function InquiryPage({ uploadId, config, admin = false }) {
         {item.answer && <div className="inquiry-answer"><h3>답변</h3><p className="inquiry-text">{item.answer}</p></div>}
         {admin && <button type="button" disabled={busy} onClick={() => setEditor({ id: item.id, title: item.title, answer: item.answer, status: item.status })}>답변·상태 수정</button>}
       </details>)}</div>
+      {message && <p className="notice" role="status">{message}</p>}
       <nav className="service-pagination" aria-label="문의 페이지">
         <button type="button" disabled={busy || list.page === 1} onClick={() => load(list.page - 1).catch((caught) => setError(caught.message))}>이전</button>
         <span>{list.page} / {Math.max(1, Math.ceil(list.count / 20))}</span>
         <button type="button" disabled={busy || !list.has_next} onClick={() => load(list.page + 1).catch((caught) => setError(caught.message))}>다음</button>
       </nav>
     </section>
-    {admin && editor && <form className="admin-editor" onSubmit={save}>
-      <h3>{editor.title}</h3><fieldset className="inquiry-form" disabled={busy}>
+    {admin && editor && <ServiceDialog title={editor.title} busy={busy} error={error} onClose={() => setEditor(null)}><form onSubmit={save}>
+      <fieldset className="inquiry-form" disabled={busy}>
         <label>답변<textarea value={editor.answer} required={editor.status === 'resolved'} maxLength={5000}
           onChange={(event) => setEditor({ ...editor, answer: event.target.value })} /></label>
         <label>처리 상태<select value={editor.status} onChange={(event) => setEditor({ ...editor, status: event.target.value })}>
@@ -113,7 +114,7 @@ export default function InquiryPage({ uploadId, config, admin = false }) {
         <div className="admin-row-actions"><button type="submit" disabled={!csrf || (editor.status === 'resolved' && !editor.answer.trim())}>저장</button>
           <button type="button" className="service-back-button" onClick={() => setEditor(null)}>취소</button></div>
       </fieldset>
-    </form>}
+    </form></ServiceDialog>}
   </div>;
 }
 

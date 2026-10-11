@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import '../inquiry/inquiry.css';
+import ServiceDialog from '../components/ServiceDialog';
 
 const labels = { pending: '승인 대기', approved: '승인', rejected: '거절', loaned: '대여 중', returned: '반납 완료', cancelled: '취소' };
 const actions = { approved: '승인', rejected: '거절', loaned: '대여 시작', returned: '반납 완료' };
@@ -24,6 +25,7 @@ export default function RentalPage({ uploadId, config, admin = false }) {
   const [rows, setRows] = useState({ rows: [], page: 1, row_count: 0 });
   const [inventory, setInventory] = useState({ row_id: '', total: '1' });
   const [stockEditor, setStockEditor] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [requestForm, setRequestForm] = useState(null);
   const [rentalEditor, setRentalEditor] = useState(null);
   const [csrf, setCsrf] = useState('');
@@ -58,7 +60,7 @@ export default function RentalPage({ uploadId, config, admin = false }) {
       await api(`${base}${path}`, { method,
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf }, body: JSON.stringify(body) });
       saved = true; setMessage(success); setStockEditor(null); setRentalEditor(null); setRequestForm(null);
-      if (path === 'rental-stocks/') setInventory({ row_id: '', total: '1' });
+      if (path === 'rental-stocks/') { setInventory({ row_id: '', total: '1' }); setCreating(false); }
       await refresh();
     } catch (caught) { setError(saved ? '저장됐지만 목록을 불러오지 못했습니다. 새로고침해 주세요.' : caught.message); }
     finally { working.current = false; setBusy(false); }
@@ -67,11 +69,11 @@ export default function RentalPage({ uploadId, config, admin = false }) {
   function loadRentals(page) { api(rentalUrl(page)).then(setRentals).catch((caught) => setError(caught.message)); }
   function loadRows(page) { api(`${base}managed-rows/?page=${page}`).then(setRows).catch((caught) => setError(caught.message)); }
 
-  return <div className="inquiry-page">
-    <h2>{config[admin ? 'admin' : 'user'].title || (admin ? '대여·반납 관리' : '대여 신청')}</h2>
+  return <div className="inquiry-page template-workspace">
+    <div className="workspace-heading"><h2>{config[admin ? 'admin' : 'user'].title || (admin ? '대여·반납 관리' : '대여 신청')}</h2>
+      {admin && <button type="button" data-intent="primary" disabled={busy} onClick={() => { setError(''); setCreating(true); }}>대여 항목 등록</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
-    {message && <p className="notice" role="status">{message}</p>}
-    {admin && <section className="panel"><h3>대여 항목 등록</h3>
+    {admin && creating && <ServiceDialog title="대여 항목 등록" busy={busy} error={error} onClose={() => setCreating(false)}>
       <form onSubmit={(event) => { event.preventDefault(); mutate('rental-stocks/', 'POST',
         { row_id: inventory.row_id, total: Number(inventory.total) }, '재고를 등록했습니다.'); }}>
         <fieldset disabled={busy} className="inquiry-form">
@@ -89,21 +91,21 @@ export default function RentalPage({ uploadId, config, admin = false }) {
           <button type="submit" disabled={!csrf}>등록</button>
         </fieldset>
       </form>
-    </section>}
-    <section className="panel"><div className="section-title"><h3>{admin ? '재고' : '대여 항목'}</h3>
+    </ServiceDialog>}
+    <section className="panel workspace-main"><div className="section-title"><h3>{admin ? '재고' : '대여 항목'}</h3>
       <button type="button" disabled={busy} className="service-back-button" onClick={() => refresh().catch((caught) => setError(caught.message))}>새로고침</button></div>
       {!admin && <p className="muted">신청 후 관리자 승인 시 수량이 확보됩니다.</p>}
       {!stocks.stocks.length && <p className="muted">{admin ? '대여 항목을 등록해 주세요.' : '대여 가능한 항목이 없습니다.'}</p>}
-      <div className="inquiry-list">{stocks.stocks.map((stock) => <article className="inquiry-item" key={stock.id}>
+      <div className="inquiry-list compact-item-grid">{stocks.stocks.map((stock) => <article className="inquiry-item" key={stock.id}>
         <strong>{stock.subject}</strong><p>가능 {stock.available} / 총 {stock.total}{admin && ` · 확보·대여 중 ${stock.held}`}</p>
         {admin && (!stock.active || !stock.row_id) && <p className="muted">{!stock.row_id ? '원본 항목 삭제됨' : '접수 중지'}</p>}
         {admin ? <button type="button" disabled={busy} onClick={() => setStockEditor({ ...stock, total: String(stock.total) })}>재고·접수 변경</button>
-          : <button type="button" disabled={busy || !stock.available || rentals.rentals.some((item) => item.stock_id === stock.id && ['pending', 'approved', 'loaned'].includes(item.status))}
+          : <button type="button" data-intent="primary" disabled={busy || !stock.available || rentals.rentals.some((item) => item.stock_id === stock.id && ['pending', 'approved', 'loaned'].includes(item.status))}
               onClick={() => setRequestForm({ stock_id: stock.id, subject: stock.subject, available: stock.available, quantity: '1', content: '' })}>대여 신청</button>}
       </article>)}</div>
       <Paging value={stocks} busy={busy} label="재고 페이지" onPage={loadStocks} />
     </section>
-    {stockEditor && <section className="panel"><h3>{stockEditor.subject}</h3>
+    {stockEditor && <ServiceDialog title={stockEditor.subject} busy={busy} error={error} onClose={() => setStockEditor(null)}>
       <form onSubmit={(event) => { event.preventDefault(); mutate(`rental-stocks/${stockEditor.id}/`, 'PATCH',
         { total: Number(stockEditor.total), active: stockEditor.active }, '재고를 저장했습니다.'); }}>
         <fieldset disabled={busy} className="inquiry-form">
@@ -113,8 +115,8 @@ export default function RentalPage({ uploadId, config, admin = false }) {
           <button type="submit" disabled={!csrf}>저장</button><button type="button" onClick={() => setStockEditor(null)}>닫기</button>
         </fieldset>
       </form>
-    </section>}
-    {!admin && requestForm && <section className="panel"><h3>{requestForm.subject}</h3>
+    </ServiceDialog>}
+    {!admin && requestForm && <ServiceDialog title={requestForm.subject} busy={busy} error={error} onClose={() => setRequestForm(null)}>
       <form onSubmit={(event) => { event.preventDefault(); mutate('rentals/', 'POST',
         { stock_id: requestForm.stock_id, quantity: Number(requestForm.quantity), content: requestForm.content }, '대여 신청을 접수했습니다.'); }}>
         <fieldset disabled={busy} className="inquiry-form">
@@ -123,8 +125,8 @@ export default function RentalPage({ uploadId, config, admin = false }) {
           <button type="submit" disabled={!csrf}>신청</button><button type="button" onClick={() => setRequestForm(null)}>닫기</button>
         </fieldset>
       </form>
-    </section>}
-    <section className="panel"><h3>{admin ? '대여 내역' : '내 대여 신청'}</h3>
+    </ServiceDialog>}
+    <section className="panel workspace-side"><h3>{admin ? '대여 내역' : '내 대여 신청'}</h3>
       {!rentals.rentals.length && <p className="muted">대여 내역이 없습니다.</p>}
       <div className="inquiry-list">{rentals.rentals.map((item) => <details className="inquiry-item" key={item.id}>
         <summary><strong>{item.subject} · {item.quantity}개</strong><span className="service-badge">{labels[item.status]}</span></summary>
@@ -136,9 +138,10 @@ export default function RentalPage({ uploadId, config, admin = false }) {
         {!admin && item.can_cancel && <button type="button" disabled={busy || !csrf}
           onClick={() => mutate(`rentals/${item.id}/`, 'PATCH', { status: 'cancelled' }, '신청을 취소했습니다.')}>취소</button>}
       </details>)}</div>
+      {message && <p className="notice" role="status">{message}</p>}
       <Paging value={rentals} busy={busy} label="대여 내역 페이지" onPage={loadRentals} />
     </section>
-    {admin && rentalEditor && <section className="panel"><h3>{rentalEditor.subject}</h3>
+    {admin && rentalEditor && <ServiceDialog title={rentalEditor.subject} busy={busy} error={error} onClose={() => setRentalEditor(null)}>
       <form onSubmit={(event) => { event.preventDefault(); mutate(`rentals/${rentalEditor.id}/`, 'PATCH',
         { status: rentalEditor.status, processing_note: rentalEditor.processing_note }, '처리했습니다.'); }}>
         <fieldset disabled={busy} className="inquiry-form">
@@ -149,6 +152,6 @@ export default function RentalPage({ uploadId, config, admin = false }) {
           <button type="submit" disabled={!csrf}>처리</button><button type="button" onClick={() => setRentalEditor(null)}>닫기</button>
         </fieldset>
       </form>
-    </section>}
+    </ServiceDialog>}
   </div>;
 }

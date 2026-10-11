@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import './fonts.css';
 import TemplateExamples from './preview/TemplateExamples';
 import WorkflowReview from './workflow/WorkflowReview';
 import ServiceFeatures from './workflow/ServiceFeatures';
@@ -11,6 +12,7 @@ import { csvFile } from './upload/files';
 import SiteFooter from './components/SiteFooter';
 import SectionIcon from './components/SectionIcon';
 import './service.css';
+import './hierarchy.css';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -262,7 +264,7 @@ function ServicePage({ uploadId, page }) {
     return () => { active = false; };
   }, [uploadId]);
   const roleTitle = page === 'DashBoard' ? '대시보드' : page === 'Admin' ? '관리자' : '사용자';
-  return <main className="service-page">
+  return <main className="service-page" data-role={page === 'DashBoard' ? 'dashboard' : page === 'Admin' ? 'admin' : 'user'}>
     <header className="service-page-header">
       <div className="service-topline"><a className="service-brand" href="/">Sheet2Service</a>
       <nav className="service-switch" aria-label="서비스 화면 이동">

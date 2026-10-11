@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .views import BootstrapView, ChartCountsView, DetailView, InferenceView, OriginalView, RowsView, ServiceView, UploadView
-from .admin_views import FieldChoicesView, FieldChoiceView, ManagedRowsView, ManagedRowView
+from .admin_views import FieldChoicesView, FieldChoiceView, FieldLabelView, ManagedRowsView, ManagedRowView
 from .workflow_views import CustomFlowPreviewView, CustomFlowRunView, WorkflowView
 from .request_views import ServiceRequestsView, ServiceRequestView, ServiceRequestStatsView
 from .inquiry_views import InquiriesView, InquiryView, InquiryStatsView
@@ -39,6 +39,7 @@ urlpatterns = [
     path("uploads/<uuid:pk>/managed-rows/", ManagedRowsView.as_view()),
     path("uploads/<uuid:pk>/managed-rows/<uuid:row_id>/", ManagedRowView.as_view()),
     path("uploads/<uuid:pk>/choices/", FieldChoicesView.as_view()),
+    path("uploads/<uuid:pk>/fields/<int:column>/", FieldLabelView.as_view()),
     path("uploads/<uuid:pk>/choices/<uuid:choice_id>/", FieldChoiceView.as_view()),
     path("uploads/<uuid:pk>/inference/", InferenceView.as_view()),
     path("uploads/<uuid:pk>/original/", OriginalView.as_view()),

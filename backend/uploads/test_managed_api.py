@@ -57,9 +57,12 @@ class ManagedApiTests(APITestCase):
         service = self.client.get(self.base + "service/")
         self.assertEqual(service.data["upload"]["analysis"]["row_count"], 3)
         self.assertEqual(service.data["upload"]["analysis"]["preview"][-1]["values"], ["C-new", "park"])
-        self.assertEqual(self.mutate(f"choices/{created_choice.data['id']}/", "patch", {"active": False}).status_code, 200)
+        self.assertEqual(self.mutate(f"choices/{created_choice.data['id']}/", "patch", {"active": False}).status_code, 400)
+        replacement = FieldChoice.objects.get(upload=upload, column_number=1, value="A")
+        self.assertEqual(self.mutate(f"choices/{created_choice.data['id']}/", "patch", {"active": False,
+            "replacement_id": str(replacement.id), "expected_usage": 1}).status_code, 200)
         self.assertEqual(self.mutate("managed-rows/", "post", {"values": ["C-new", "park"]}).status_code, 400)
-        self.assertEqual(self.mutate(f"managed-rows/{row_id}/", "patch", {"values": ["C-new", "room"]}).status_code, 200)
+        self.assertEqual(self.mutate(f"managed-rows/{row_id}/", "patch", {"values": ["A", "room"]}).status_code, 200)
         self.assertEqual(self.mutate(f"managed-rows/{row_id}/", "delete").status_code, 204)
         self.assertEqual(self.client.get(self.base + "managed-rows/").data["row_count"], 2)
 
@@ -67,6 +70,40 @@ class ManagedApiTests(APITestCase):
         other = APIClient()
         self.assertEqual(other.get(self.base + "managed-rows/").status_code, 404)
         self.assertEqual(other.get(self.base + "choices/?column=1").status_code, 404)
+
+    def test_choice_stop_replaces_all_usage_and_blocks_delete_bypass(self):
+        source = FieldChoice.objects.get(upload_id=self.upload_id, column_number=2, value="park")
+        target = FieldChoice.objects.get(upload_id=self.upload_id, column_number=2, value="room")
+        self.mutate("managed-rows/", "post", {"values": ["B", "park"]})
+        self.assertEqual(self.client.get(self.base + f"choices/{source.id}/").data["usage_count"], 2)
+        listed = self.client.get(self.base + "choices/?column=2").data["choices"]
+        self.assertEqual(next(item for item in listed if item["id"] == str(source.id))["usage_count"], 2)
+        self.assertEqual(self.mutate(f"choices/{source.id}/", "delete").status_code, 400)
+        result = self.mutate(f"choices/{source.id}/", "patch", {"active": False,
+            "replacement_id": str(target.id), "expected_usage": 2, "expected_value": "park", "replacement_value": "room"})
+        self.assertEqual(result.status_code, 200)
+        self.assertFalse(FieldChoice.objects.get(pk=source.id).active)
+        self.assertTrue(all(row.values[1] == "room" for row in ManagedRow.objects.filter(upload_id=self.upload_id)))
+        self.assertEqual(self.mutate(f"choices/{source.id}/", "patch", {"active": True}).status_code, 200)
+
+    def test_stop_rejects_stale_counts_and_invalid_replacements_without_data_changes(self):
+        source = FieldChoice.objects.get(upload_id=self.upload_id, column_number=2, value="park")
+        target = FieldChoice.objects.get(upload_id=self.upload_id, column_number=2, value="room")
+        wrong_column = FieldChoice.objects.get(upload_id=self.upload_id, column_number=1, value="A")
+        base = {"active": False, "replacement_id": str(target.id), "expected_usage": 1}
+        for changes in ({"expected_usage": 0}, {"expected_usage": True}, {"replacement_id": str(source.id)},
+                        {"replacement_id": str(wrong_column.id)}, {"replacement_id": "invalid"},
+                        {"expected_value": "changed"}, {"replacement_value": "changed"}):
+            self.assertEqual(self.mutate(f"choices/{source.id}/", "patch", {**base, **changes}).status_code, 400)
+        target.active = False
+        target.save(update_fields=["active"])
+        self.assertEqual(self.mutate(f"choices/{source.id}/", "patch", base).status_code, 400)
+        self.assertTrue(FieldChoice.objects.get(pk=source.id).active)
+        self.assertEqual(ManagedRow.objects.get(upload_id=self.upload_id, row_number=2).values, ["A", "park"])
+
+    def test_unused_choice_can_stop_without_replacement(self):
+        added = self.mutate("choices/", "post", {"column": 2, "value": "unused"})
+        self.assertEqual(self.mutate(f"choices/{added.data['id']}/", "patch", {"active": False, "expected_usage": 0}).status_code, 200)
 
     def test_search_and_filter_cover_rows_beyond_first_page(self):
         upload = Upload.objects.get(pk=self.upload_id)

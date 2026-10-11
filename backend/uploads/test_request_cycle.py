@@ -10,6 +10,23 @@ from .models import ServiceRequest, Upload
 
 
 class RequestCycleTests(APITestCase):
+    def test_search_status_and_sort_apply_before_pagination(self):
+        self.select_reception(0)
+        for index in range(25):
+            ServiceRequest.objects.create(upload=self.upload, subject_snapshot=f"Item {index:02d}",
+                content="needle" if index == 24 else "", status="pending" if index % 2 == 0 else "approved",
+                created_by_session=self.upload.session_key)
+        found = self.client.get(self.base, {"q": "needle", "status": "pending"})
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.data["count"], 1)
+        self.assertEqual(found.data["requests"][0]["subject"], "Item 24")
+        ordered = self.client.get(self.base, {"sort": "subject", "page": 2})
+        self.assertEqual(ordered.data["requests"][0]["subject"], "Item 20")
+        descending = self.client.get(self.base, {"sort": "-subject"})
+        self.assertEqual(descending.data["requests"][0]["subject"], "Item 24")
+        for criteria in ({"status": "invalid"}, {"sort": "invalid"}, {"q": "x" * 201}):
+            self.assertEqual(self.client.get(self.base, criteria).status_code, 400)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

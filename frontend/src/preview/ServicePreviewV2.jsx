@@ -10,7 +10,7 @@ const display = (value) => value === null || value === undefined || String(value
 const fieldValue = (record, columns, number) => display(record.values[columnId(columns, number)]);
 
 function Fields({ record, columns, numbers }) {
-  return <dl className="service-fields">{numbers.map((number) => <div key={number}>
+  return <dl className="service-fields">{numbers.map((number) => <div key={number} className={fieldValue(record, columns, number).length > 80 || /[\r\n]/.test(fieldValue(record, columns, number)) ? 'field-wide' : undefined}>
     <dt>{columnLabel(columns, number)}</dt>
     <dd>{fieldValue(record, columns, number)}</dd>
   </div>)}</dl>;

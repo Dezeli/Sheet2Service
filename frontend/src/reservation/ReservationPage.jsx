@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import '../inquiry/inquiry.css';
+import ServiceDialog from '../components/ServiceDialog';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -24,6 +25,7 @@ export default function ReservationPage({ uploadId, config, admin = false }) {
   const [rows, setRows] = useState({ rows: [], page: 1, row_count: 0 });
   const [form, setForm] = useState({ row_id: '', starts_at: '', ends_at: '', capacity: '1' });
   const [editor, setEditor] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [csrf, setCsrf] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +58,7 @@ export default function ReservationPage({ uploadId, config, admin = false }) {
       await api(`${base}${path}`, { method,
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf }, body: JSON.stringify(body) });
       saved = true; setMessage(success); setEditor(null);
-      if (path === 'reservation-slots/') setForm({ row_id: '', starts_at: '', ends_at: '', capacity: '1' });
+      if (path === 'reservation-slots/') { setForm({ row_id: '', starts_at: '', ends_at: '', capacity: '1' }); setCreating(false); }
       await refresh();
     } catch (caught) {
       setError(saved ? '저장됐지만 목록을 불러오지 못했습니다. 새로고침해 주세요.' : caught.message);
@@ -70,11 +72,11 @@ export default function ReservationPage({ uploadId, config, admin = false }) {
   function loadSlots(page) { api(slotUrl(page)).then(setSlots).catch((caught) => setError(caught.message)); }
   function loadBookings(page) { api(bookingUrl(page)).then(setBookings).catch((caught) => setError(caught.message)); }
 
-  return <div className="inquiry-page">
-    <h2>{config[admin ? 'admin' : 'user'].title || (admin ? '예약 일정·정원 관리' : '시간 예약')}</h2>
+  return <div className="inquiry-page template-workspace">
+    <div className="workspace-heading"><h2>{config[admin ? 'admin' : 'user'].title || (admin ? '예약 일정·정원 관리' : '시간 예약')}</h2>
+      {admin && <button type="button" data-intent="primary" disabled={busy} onClick={() => { setError(''); setCreating(true); }}>예약 시간 추가</button>}</div>
     {error && <p className="error" role="alert">{error}</p>}
-    {message && <p className="notice" role="status">{message}</p>}
-    {admin && <section className="panel"><h3>예약 시간 추가</h3>
+    {admin && creating && <ServiceDialog title="예약 시간 추가" busy={busy} error={error} onClose={() => setCreating(false)}>
       <form onSubmit={create}><fieldset className="inquiry-form" disabled={busy}>
         <label>항목<select required value={form.row_id} onChange={(event) => setForm({ ...form, row_id: event.target.value })}>
           <option value="">선택해 주세요</option>
@@ -91,21 +93,21 @@ export default function ReservationPage({ uploadId, config, admin = false }) {
         <label>정원<input required type="number" min="1" max="10000" step="1" value={form.capacity} onChange={(event) => setForm({ ...form, capacity: event.target.value })} /></label>
         <button type="submit" disabled={!csrf}>추가</button>
       </fieldset></form>
-    </section>}
-    <section className="panel"><div className="section-title"><h3>{admin ? '예약 일정' : '예약 가능한 시간'}</h3>
+    </ServiceDialog>}
+    <section className="panel workspace-main"><div className="section-title"><h3>{admin ? '예약 일정' : '예약 가능한 시간'}</h3>
       <button type="button" disabled={busy} className="service-back-button" onClick={() => refresh().catch((caught) => setError(caught.message))}>새로고침</button></div>
       {!slots.slots.length && <p className="muted">{admin ? '예약 시간을 추가해 주세요.' : '예약 가능한 시간이 없습니다.'}</p>}
-      <div className="inquiry-list">{slots.slots.map((slot) => <article className="inquiry-item" key={slot.id}>
+      <div className="inquiry-list compact-item-grid">{slots.slots.map((slot) => <article className="inquiry-item" key={slot.id}>
         <strong>{slot.subject}</strong><p>{date(slot.starts_at)} ~ {date(slot.ends_at)}</p>
         <p>{slot.closed ? '접수 마감' : `잔여 ${slot.remaining} / 정원 ${slot.capacity}`}</p>
         {admin ? <button type="button" disabled={busy} onClick={() => setEditor({ ...slot, capacity: String(slot.capacity) })}>정원·마감 변경</button>
-          : <button type="button" disabled={busy || !csrf || !slot.remaining || new Date(slot.starts_at) <= new Date()
+          : <button type="button" data-intent="primary" disabled={busy || !csrf || !slot.remaining || new Date(slot.starts_at) <= new Date()
               || bookings.reservations.some((item) => item.slot.id === slot.id && !item.cancelled)}
               onClick={() => mutate('reservations/', 'POST', { slot_id: slot.id }, '예약했습니다.')}>예약</button>}
       </article>)}</div>
       <Paging value={slots} busy={busy} label="예약 시간 페이지" onPage={loadSlots} />
     </section>
-    {editor && <section className="panel"><h3>{editor.subject}</h3>
+    {editor && <ServiceDialog title={editor.subject} busy={busy} error={error} onClose={() => setEditor(null)}>
       <form onSubmit={(event) => { event.preventDefault(); mutate(`reservation-slots/${editor.id}/`, 'PATCH',
         { capacity: Number(editor.capacity), closed: editor.closed }, '저장했습니다.'); }}>
         <fieldset disabled={busy} className="inquiry-form">
@@ -115,8 +117,8 @@ export default function ReservationPage({ uploadId, config, admin = false }) {
           <button type="submit" disabled={!csrf}>저장</button><button type="button" onClick={() => setEditor(null)}>닫기</button>
         </fieldset>
       </form>
-    </section>}
-    <section className="panel"><h3>{admin ? '예약 내역' : '내 예약'}</h3>
+    </ServiceDialog>}
+    <section className="panel workspace-side"><h3>{admin ? '예약 내역' : '내 예약'}</h3>
       {!bookings.reservations.length && <p className="muted">예약 내역이 없습니다.</p>}
       <div className="inquiry-list">{bookings.reservations.map((item) => <article className="inquiry-item" key={item.id}>
         <strong>{item.slot.subject}</strong><p>{date(item.slot.starts_at)} ~ {date(item.slot.ends_at)}</p>
@@ -124,6 +126,7 @@ export default function ReservationPage({ uploadId, config, admin = false }) {
         {!admin && !item.cancelled && new Date(item.slot.starts_at) > new Date() && <button type="button" disabled={busy || !csrf}
           onClick={() => mutate(`reservations/${item.id}/`, 'PATCH', { cancelled: true }, '예약을 취소했습니다.')}>예약 취소</button>}
       </article>)}</div>
+      {message && <p className="notice" role="status">{message}</p>}
       <Paging value={bookings} busy={busy} label="예약 내역 페이지" onPage={loadBookings} />
     </section>
   </div>;

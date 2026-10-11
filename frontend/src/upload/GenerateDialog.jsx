@@ -25,7 +25,7 @@ export default function GenerateDialog({ file, summary, busy, error, canRetry, o
     {error && <p className="error" role="alert">{error}</p>}
     <div className="generate-actions">
       <button type="button" className="generate-cancel" disabled={busy} onClick={onClose}>취소</button>
-      {canRetry && <button type="button" disabled={busy} onClick={onRetry}>다시 시도</button>}
+      {canRetry && <button type="button" data-intent="secondary" disabled={busy} onClick={onRetry}>다시 시도</button>}
       <button type="button" disabled={busy || !summary} onClick={onConfirm}>서비스 생성</button>
     </div>
   </dialog>;

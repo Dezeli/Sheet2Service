@@ -8,7 +8,9 @@
   --muted: #526e6a;
   --line: #cfe4e1;
   --card-shadow: 0 4px 20px #2ba8a21a;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --font-body: 'SUIT', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --font-heading: 'Pretendard', 'SUIT', sans-serif;
+  font-family: var(--font-body);
   color: var(--ink);
   background: #eff8f7;
   line-height: 1.55;
@@ -24,8 +26,11 @@ main { max-width: 1180px; padding: 40px 24px 64px; }
 .site-footer-contact-label { font-weight: 650; }
 .site-footer-copyright { margin-left: auto; color: var(--muted); font-size: .78rem; }
 header { margin-bottom: 32px; }
-h1 { font-size: clamp(1.8rem, 4vw, 2.7rem); font-weight: 800; letter-spacing: -.03em; }
-h2, h3 { font-weight: 800; }
+h1 { font-family: var(--font-heading); font-size: clamp(1.8rem, 4vw, 2.7rem); font-weight: 700; letter-spacing: -.03em; }
+h2, h3, h4, h5, h6 { font-family: var(--font-heading); font-weight: 600; }
+.service-brand, .site-footer-brand { font-family: var(--font-heading); }
+button, input, select, textarea { font-family: var(--font-body); }
+table, .metrics, .admin-record-number { font-variant-numeric: tabular-nums; }
 .icon-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .section-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; background: var(--teal-light); color: var(--teal-dark); }
 .workflow-columns .section-icon { width: 24px; height: 24px; background: transparent; }

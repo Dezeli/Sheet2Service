@@ -35,6 +35,7 @@ def payload(upload):
     return {
         "id": str(upload.id), "name": upload.original_name, "size": upload.size,
         "file_type": upload.file_type, "encoding": upload.encoding,
+        "field_labels": upload.field_labels,
         "analysis": managed_report(upload) if upload.managed else upload.analysis,
         "created_at": upload.created_at.isoformat(),
     }
