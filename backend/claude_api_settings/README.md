@@ -1,5 +1,7 @@
 # Claude 1차 응답 스키마 설계
 
+조합형 서비스의 **미연결 설계 초안**은 [별도 문서](../../docs/composable-service-blueprint.md)에 있다. `service_blueprint_*` 파일은 아직 실제 Claude 호출에 사용되지 않는다. 현재 실행 경로는 아래 Preview v2 설정을 사용한다.
+
 실행 계약은 [Preview 설정 계약 v2](../../docs/preview-config-v2.md)에 정리했다. 시스템 프롬프트와 콘텐츠 템플릿은 `uploads.preview_request_v2`가 읽어 신규 Claude 요청에 사용한다. 예시 JSON Schema 파일은 가상 CSV용 참고 자료이며 실제 요청에는 사용하지 않는다.
 
 ## 목적과 범위

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "title": "교육 프로그램 안내와 신청",
+  "summary": "프로그램을 찾아보고 신청할 수 있는 서비스입니다. 신청은 관리자가 승인하거나 거절합니다.",
+  "catalog": {
+    "titleColumn": 1,
+    "visibleColumns": [1, 2, 3],
+    "searchColumns": [1, 2],
+    "filterColumns": [2],
+    "charts": [{"kind": "count_by", "groupColumn": 2}]
+  },
+  "workflows": [{
+    "id": "application",
+    "title": "프로그램 신청",
+    "subjectColumn": 1,
+    "fields": [{"id": "message", "label": "신청 내용", "type": "text", "required": false}],
+    "states": [
+      {"id": "pending", "label": "검토 중"},
+      {"id": "approved", "label": "승인"},
+      {"id": "rejected", "label": "거절"},
+      {"id": "cancelled", "label": "취소"}
+    ],
+    "initialState": "pending",
+    "transitions": [
+      {"from": "pending", "to": "approved", "actor": "admin", "label": "승인"},
+      {"from": "pending", "to": "rejected", "actor": "admin", "label": "거절"},
+      {"from": "pending", "to": "cancelled", "actor": "owner", "label": "신청 취소"}
+    ]
+  }]
+}
