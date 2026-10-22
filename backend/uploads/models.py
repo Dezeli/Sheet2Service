@@ -96,6 +96,29 @@ class ComponentVersion(models.Model):
         return super().save(*args, **kwargs)
 
 
+class ComponentMatch(models.Model):
+    """A capability search result; stores no user prompt or CSV values."""
+
+    class Outcome(models.TextChoices):
+        REUSE = "reuse", "Reuse"
+        COMPOSE = "compose", "Compose"
+        GAP = "gap", "Gap"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, null=True, blank=True, on_delete=models.CASCADE,
+                               related_name="component_matches")
+    surface = models.CharField(max_length=16)
+    requested_capabilities = models.JSONField()
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    selected_keys = models.JSONField(default=list)
+    missing_capabilities = models.JSONField(default=list)
+    candidate_reasons = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
 class FieldChoice(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="field_choices")
