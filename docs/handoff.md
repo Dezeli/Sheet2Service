@@ -1,5 +1,14 @@
 # 작업 인수인계
 
+## 2026-10-22 부품 판단 계약 세 번째 증분 (미커밋)
+
+- 후보 검색 두 번째 증분은 사용자 승인 후 `a9f504c feat: add deterministic component matching and decision log`로 커밋했다. push는 하지 않았다.
+- `component_planning.py`는 등록부 메타데이터만 프롬프트용으로 직렬화하고, 알려진 기능 enum과 사용 가능 부품 키를 제한한 JSON Schema를 만든다. Claude의 `reuse/compose/extend/create/needs_input` 계획을 기존 결정적 후보 검색으로 다시 검증한다.
+- 프롬프트·등록부 콘텐츠·응답 예시는 `backend/claude_api_settings/component_decision_*`에 있다. 로그인·지도·예약 기능 enum은 미구현 요구를 표현할 뿐 실행 가능 부품이 아니다.
+- 현재 수정 API에는 아직 연결하지 않았다. 후속 연결 시 기존 **한 번의 수정 호출**에 병합할 계획이며, 별도 Claude 호출이나 자동 재시도를 추가하지 않는다. 이 증분에서는 Claude API 호출과 UI 검증을 하지 않았다.
+- 오프라인 등록부·후보 검색·판단 계약 검사 13개, 마이그레이션 일치 검사, `git diff --check`가 통과했다.
+- 다음 단계: 기존 수정 응답과 `plans`의 스키마를 한 호출로 합치고, 서버 검증 이후 사용자에게 필요한 최소 질문/진행 상태를 표현한다. 새 부품 생성·실행·승격은 별도 검증 단계가 필요하다.
+
 ## 2026-10-22 부품 후보 검색 두 번째 증분 (미커밋)
 
 - 사용자 승인으로 이전 미커밋 조합형 서비스 연결/UI를 `bee2c4c`, DB 등록부 첫 증분을 `11afca5`로 각각 커밋했다. push는 하지 않았다.

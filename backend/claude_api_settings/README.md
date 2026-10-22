@@ -68,3 +68,8 @@ Anthropic의 구조화 출력은 `minItems`의 0·1만 지원한다. `maxItems`,
 JSON Schema의 enum은 **허용된 컬럼을 선택했는지** 제한한다. 그 컬럼이 의미상 가장 적합한지는 별개이므로, Claude에 전달하는 분석 근거와 로컬 검증을 함께 설계해야 한다.
 
 참고: [Anthropic 구조화 출력의 JSON Schema 지원 범위](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)
+# 부품 판단 계약 (연결 전)
+
+서비스 수정 요청에 부품 판단을 포함시키기 위한 [시스템 지침](component_decision_system.md), [등록부 콘텐츠](component_decision_content.md), [응답 예시](component_decision_response.example.json)를 둔다. `uploads.component_planning.planning_extension()`이 현재 사용 가능·폐기 부품의 메타데이터와 enum 기반 JSON Schema를 만든다. `validate_decision()`은 응답을 등록부 후보 검색으로 재검증한다.
+
+이 계약은 아직 실제 Claude 요청이나 서비스 수정 API에 연결되지 않았다. 연결 단계에서는 기존 **수정 요청 한 번의 호출**에 콘텐츠와 `plans` 스키마를 합쳐야 한다. 별도 호출, 자동 재시도, 새 부품 코드 실행은 이 파일들로 허용되지 않는다. `account.login` 등 미구현 기능의 enum은 사용자 요구를 표현할 뿐, 사용 가능 부품이라는 의미가 아니다. `newRequirement`·`reason`은 길이와 구조만 검증하며 의미상 타당성은 등록부 결과와 후속 검토가 필요하다.

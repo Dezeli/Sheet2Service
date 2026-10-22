@@ -11,6 +11,7 @@ class Surface(StrEnum):
     DASHBOARD = "dashboard"
     USER = "user"
     ADMIN = "admin"
+    PLATFORM = "platform"
 
 
 class Capability(StrEnum):
@@ -25,6 +26,12 @@ class Capability(StrEnum):
     CATALOG_EDIT = "catalog.edit_rows"
     FIELD_RENAME = "catalog.rename_field"
     CHOICE_MANAGE = "catalog.manage_choices"
+    ACCOUNT_REGISTER = "account.register"
+    ACCOUNT_LOGIN = "account.login"
+    ACCOUNT_ACCESS_CONTROL = "account.access_control"
+    MAP_MARKERS = "map.markers"
+    RESERVATION_TIME_SLOT = "reservation.time_slot"
+    RESERVATION_CAPACITY = "reservation.capacity"
 
 
 class Implementation(StrEnum):

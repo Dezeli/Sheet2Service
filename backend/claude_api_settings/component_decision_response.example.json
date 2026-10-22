@@ -1,0 +1,14 @@
+{
+  "plans": [
+    {
+      "surface": "platform",
+      "knownCapabilities": ["account.register", "account.login", "account.access_control"],
+      "newRequirement": "",
+      "decision": "create",
+      "baseComponent": "none",
+      "blocker": "no_related_component",
+      "reason": "현재 등록부에는 사용자 계정과 인증을 처리하는 구현이 없다.",
+      "question": ""
+    }
+  ]
+}
