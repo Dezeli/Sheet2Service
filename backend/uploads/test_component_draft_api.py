@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
 
 from .call_records import finish_call, start_call
+from .claude import ProviderTimeoutError, TIMEOUT_MESSAGE, _post_message
 from .component_matching import record_component_match
 from .models import ComponentCandidate, ComponentDraft, ComponentVersion, ModelCall, Upload
 
@@ -97,3 +98,24 @@ class ComponentDraftApiTests(APITestCase):
         self.assertEqual(ComponentDraft.objects.count(), 0)
         self.assertEqual(ModelCall.objects.filter(purpose="미구현 부품 소스 초안 생성").get().status,
                          ModelCall.Status.FAILED)
+
+    @patch("uploads.component_draft_views._post_message", side_effect=ProviderTimeoutError(TIMEOUT_MESSAGE))
+    def test_timeout_is_reported_and_logged_as_unknown(self, post_message):
+        approval = self.post("approval/", {"candidate_id": self.candidate.pk})
+        result = self.post("generate/", {"candidate_id": self.candidate.pk, "approved": True,
+                                         "request_fingerprint": approval.data["request_fingerprint"],
+                                         "approval_note": "단일 호출 승인"})
+        self.assertEqual(result.status_code, 400)
+        self.assertIn("응답 대기 시간", result.data["detail"])
+        self.assertEqual(ComponentDraft.objects.count(), 0)
+        call = ModelCall.objects.filter(purpose="미구현 부품 소스 초안 생성").get()
+        self.assertEqual(call.status, ModelCall.Status.UNKNOWN)
+        self.assertEqual(call.error_type, "ProviderTimeoutError")
+        post_message.assert_called_once()
+        self.assertEqual(post_message.call_args.kwargs["timeout_seconds"], 180)
+
+    @patch("uploads.claude.urllib.request.urlopen", side_effect=TimeoutError("read timed out"))
+    def test_transport_read_timeout_is_classified(self, urlopen):
+        with self.assertRaises(ProviderTimeoutError):
+            _post_message({"model": "test", "messages": []})
+        urlopen.assert_called_once()

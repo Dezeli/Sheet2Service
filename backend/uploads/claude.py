@@ -19,6 +19,14 @@ DEFAULT_MAX_TOKENS = 8000
 TIMEOUT_SECONDS = 60
 
 
+class ProviderTimeoutError(InferenceError):
+    """The request may have reached Claude, but no response was received in time."""
+
+
+TIMEOUT_MESSAGE = ("Claude 응답 대기 시간이 초과되었습니다. 요청 처리 여부는 확인할 수 없습니다. "
+                   "호출 기록을 확인한 뒤 새 호출을 결정해 주세요.")
+
+
 def inference_request_body(report):
     prompt = build_prompt(report)
     return {
@@ -79,7 +87,7 @@ def _extract_text(response_body):
     return ""
 
 
-def _post_message(request_body):
+def _post_message(request_body, *, timeout_seconds=TIMEOUT_SECONDS):
     if not settings.ANTHROPIC_API_KEY:
         raise InferenceError("ANTHROPIC_API_KEY가 설정되어 있지 않습니다.")
     encoded = json_text(request_body).encode("utf-8")
@@ -95,13 +103,17 @@ def _post_message(request_body):
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             body = response.read().decode("utf-8")
             return response.status, dict(response.headers), body
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         return exc.code, dict(exc.headers), body
+    except TimeoutError as exc:
+        raise ProviderTimeoutError(TIMEOUT_MESSAGE) from exc
     except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise ProviderTimeoutError(TIMEOUT_MESSAGE) from exc
         raise InferenceError(str(exc.reason)) from exc
 
 

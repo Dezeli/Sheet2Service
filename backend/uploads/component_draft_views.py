@@ -11,7 +11,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
 from .call_records import finish_call, start_call
-from .claude import _extract_text, _post_message
+from .claude import ProviderTimeoutError, _extract_text, _post_message
 from .component_drafts import draft_request_body, validate_component_draft
 from .component_recovery import revalidate_failed_component_call
 from .inference import InferenceError
@@ -19,6 +19,9 @@ from .models import ComponentCandidate, ComponentDraft, ComponentMatch, ModelCal
 from .service_blueprint import _parse_json
 from .service_blueprint_request import fingerprint
 from .views import SessionView, owned
+
+
+DRAFT_TIMEOUT_SECONDS = 180
 
 
 def _candidate(upload, value):
@@ -112,7 +115,7 @@ class ComponentDraftGenerateView(SessionView):
             headers = {}
             usage = {}
             try:
-                status, headers, response_text = _post_message(body)
+                status, headers, response_text = _post_message(body, timeout_seconds=DRAFT_TIMEOUT_SECONDS)
                 provider = json.loads(response_text)
                 if not isinstance(provider, dict):
                     raise ValueError("Claude 응답 형식이 올바르지 않습니다.")
@@ -133,7 +136,8 @@ class ComponentDraftGenerateView(SessionView):
                 return Response(_response(draft, already_generated=False))
             except (ValueError, InferenceError) as exc:
                 if ModelCall.objects.filter(pk=call.pk, status=ModelCall.Status.STARTED).exists():
-                    finish_call(call, status=ModelCall.Status.FAILED, response_body=response_text,
+                    outcome = ModelCall.Status.UNKNOWN if isinstance(exc, ProviderTimeoutError) else ModelCall.Status.FAILED
+                    finish_call(call, status=outcome, response_body=response_text,
                                 http_status=status, provider_request_id=headers.get("request-id", ""),
                                 usage=usage, error_type=type(exc).__name__, error_message=str(exc))
                 raise
