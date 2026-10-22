@@ -78,7 +78,7 @@ export default function BlueprintChat({ uploadId, page, csrf, onApplied }) {
           onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault(); event.currentTarget.form?.requestSubmit();
           } }} placeholder="예: 사용자 목록에 장소 필터를 추가해 줘" />
-        <p>CSV 컬럼 분석과 최대 10개 예시 행, 현재 서비스 설정, 현재 화면, 입력한 요청을 Claude에 보냅니다. 버튼을 누르면 Claude API를 1회 호출하며 자동 재시도하지 않습니다.</p>
+        <p>CSV 컬럼 분석과 최대 10개 예시 행, 현재 서비스 설정, 현재 화면, 입력한 요청, 부품 등록부 메타데이터를 Claude에 보냅니다. 버튼을 누르면 Claude API를 1회 호출하며 자동 재시도하지 않습니다.</p>
         <button type="submit" disabled={busy || !csrf || request.trim().length < 10}>
           {busy ? '수정 중...' : 'Claude 1회 호출하여 수정'}</button>
       </form>

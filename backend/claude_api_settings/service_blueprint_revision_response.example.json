@@ -1,6 +1,16 @@
 {
   "status": "applied",
   "message": "프로그램 분류 필터를 추가했습니다.",
+  "plans": [{
+    "surface": "user",
+    "knownCapabilities": ["catalog.filter_exact"],
+    "newRequirement": "",
+    "decision": "reuse",
+    "baseComponent": "none",
+    "blocker": "none",
+    "reason": "기존 값 일치 필터 부품으로 설정할 수 있다.",
+    "question": ""
+  }],
   "blueprint": {
     "version": 1,
     "title": "교육 프로그램 안내와 신청",

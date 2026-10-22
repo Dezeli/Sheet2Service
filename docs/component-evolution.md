@@ -4,7 +4,7 @@
 
 사용자 요청을 받을 때 기존 부품의 설정 변경·조합·확장을 먼저 검토한다. 기존 기능으로 표현할 수 없는 동작이 확인될 때에만 새 부품 후보를 만든다. 부품은 계열과 버전, 부모 버전으로 계보를 기록한다. **최신 버전이 항상 우선하지는 않는다.** 요구를 충족하는 가장 단순한 검증된 버전을 선택한다.
 
-첫 증분은 이미 실행 중인 기능 7개의 계약을 PostgreSQL에 등록한다. `ComponentVersion`은 부품의 계보, 기능, 적용 화면, 저장소 코드에 연결되는 구현 키, 상태를 저장한다. 실행 코드나 사용자 CSV 데이터는 DB에 저장하지 않는다. 두 번째 증분에서는 [`component_matching.py`](../backend/uploads/component_matching.py)에 결정적 후보 검색과 `ComponentMatch` 판단 기록을 추가했다. 세 번째 증분은 [`component_planning.py`](../backend/uploads/component_planning.py)와 [`claude_api_settings`](../backend/claude_api_settings/README.md)에 오프라인 부품 판단 계약을 정의한다. 현재 Preview·생성·수정 경로는 이 등록부와 판단 계약을 아직 읽지 않는다. 따라서 기존 화면과 Claude 요청은 바뀌지 않는다.
+첫 증분은 이미 실행 중인 기능 7개의 계약을 PostgreSQL에 등록한다. `ComponentVersion`은 부품의 계보, 기능, 적용 화면, 저장소 코드에 연결되는 구현 키, 상태를 저장한다. 실행 코드나 사용자 CSV 데이터는 DB에 저장하지 않는다. 두 번째 증분에서는 [`component_matching.py`](../backend/uploads/component_matching.py)에 결정적 후보 검색과 `ComponentMatch` 판단 기록을 추가했다. 세 번째 증분은 [`component_planning.py`](../backend/uploads/component_planning.py)와 [`claude_api_settings`](../backend/claude_api_settings/README.md)에 부품 판단 계약을 정의했다. 네 번째 증분에서 **기존 서비스 수정 호출 한 번**에 이 판단을 연결했다. 서비스 생성과 Preview 실행 경로는 그대로이며, 아직 새 부품을 자동 생성하거나 실행하지 않는다.
 
 ## 초기 등록부
 
@@ -46,9 +46,9 @@
 
 ## 단계별 구현
 
-1. **현재 단계:** 실제 구현된 부품만 DB에 등록하고 계보·기능 계약을 검증한다. 기존 화면은 그대로 둔다.
+1. **완료:** 실제 구현된 부품만 DB에 등록하고 계보·기능 계약을 검증한다.
 2. **완료:** 등록부를 읽는 결정적 후보 검색과 `reuse/compose/gap` 판단 기록을 구현한다.
-3. **현재 단계:** 기존 서비스 수정 호출에 추가할 enum 응답 계약·프롬프트·로컬 검증을 오프라인으로 구현한다. 실제 호출 연결은 다음 증분에서 검토한다.
+3. **완료:** 기존 서비스 수정 호출에 enum 응답 계약·프롬프트·로컬 검증을 연결한다. 미구현 기능은 계획만 반환하고 기존 설정을 유지한다.
 4. 기능 탭 호스트를 도입하고 선택된 부품 버전을 서비스 설정에 고정한다. 사용자·관리자 화면의 기존 스타일을 기준으로 탭별 결합을 줄인다.
 5. 새 부품 후보의 격리 생성·검증·승격 절차를 구현한다. 로그인 같은 플랫폼 기능은 별도의 권한/보안 검사 기준을 충족한 뒤 연결한다.
 

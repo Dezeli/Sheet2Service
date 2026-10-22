@@ -55,7 +55,7 @@ def decision_schema(*, catalog=None):
 
 
 def planning_extension(*, registry=None):
-    """Materials to append to the existing revision call in a later integration step."""
+    """Materials included in the existing single revision call."""
     catalog = catalog_snapshot(registry=registry)
     system = (SETTINGS / "component_decision_system.md").read_text(encoding="utf-8")
     content = (SETTINGS / "component_decision_content.md").read_text(encoding="utf-8")
@@ -63,13 +63,13 @@ def planning_extension(*, registry=None):
     return {"system": system, "content": content, "schema": decision_schema(catalog=catalog)}
 
 
-def validate_decision(value, *, registry=None):
+def validate_decision(value, *, registry=None, allow_empty=False):
     """Reject impossible model claims using the same snapshot used for prompting."""
     items = list(ComponentVersion.objects.all() if registry is None else registry)
     catalog_snapshot(registry=items)
     available = {item.key: item for item in items if item.status == ComponentVersion.Status.AVAILABLE}
     if not isinstance(value, dict) or set(value) != {"plans"} or not isinstance(value["plans"], list) \
-            or not 1 <= len(value["plans"]) <= MAX_PLANS:
+            or not (0 if allow_empty else 1) <= len(value["plans"]) <= MAX_PLANS:
         raise ValueError("부품 판단 목록이 올바르지 않습니다.")
     results = []
     seen = set()
@@ -124,3 +124,23 @@ def validate_decision(value, *, registry=None):
                 raise ValueError("양립 불가능한 기존 계약이 확인되지 않았습니다.")
         results.append({"plan": plan, "match": match})
     return results
+
+
+def parse_planned_revision(raw, report, current):
+    """Validate the one-call revision and its component decisions together."""
+    from .service_blueprint import BlueprintError, _parse_json, validate_revision_value
+
+    value = _parse_json(raw)
+    if not isinstance(value, dict) or set(value) != {"status", "message", "blueprint", "plans"}:
+        raise BlueprintError("수정 응답 필드가 올바르지 않습니다.")
+    revision = validate_revision_value({key: value[key] for key in (
+        "status", "message", "blueprint")}, report, current)
+    decisions = validate_decision({"plans": value["plans"]}, allow_empty=revision["status"] == "applied")
+    kinds = {entry["plan"]["decision"] for entry in decisions}
+    if revision["status"] == "applied" and not kinds <= {"reuse", "compose"}:
+        raise BlueprintError("적용된 수정에 미구현 부품 판단이 포함되었습니다.")
+    if revision["status"] == "unsupported" and not kinds & {"extend", "create"}:
+        raise BlueprintError("지원되지 않는 기능의 부족한 부품 판단이 없습니다.")
+    if revision["status"] == "needs_input" and "needs_input" not in kinds:
+        raise BlueprintError("추가 질문에 필요한 판단이 없습니다.")
+    return {**revision, "plans": value["plans"]}

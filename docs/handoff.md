@@ -1,5 +1,12 @@
 # 작업 인수인계
 
+## 2026-10-22 부품 판단을 서비스 수정 요청에 연결한 네 번째 증분 (미커밋)
+
+- 세 번째 부품 판단 계약은 사용자 승인 후 `22c2e96 feat: define validated component decision contract`로 커밋했다. push는 하지 않았다.
+- `service_blueprint_request.py`가 기존 수정 요청 한 번의 Claude 호출에 등록부 메타데이터, 부품 판단 프롬프트, `plans` enum 스키마를 결합한다. 앱의 사전 안내에도 전송되는 등록부 메타데이터를 명시했다. 실제 Claude 호출은 하지 않았다.
+- `parse_planned_revision`은 수정 설정과 계획을 함께 검증한다. `applied`는 `reuse/compose`, `unsupported`는 `extend/create`, `needs_input`은 질문 계획을 요구한다. 유효한 계획의 검색 근거만 `ComponentMatch`에 기록한다. 미구현 부품을 실행하거나 서비스 설정에 저장하지 않는다.
+- 가짜 Claude 응답을 쓰는 관련 검사 21개와 `git diff --check`가 통과했다. 브라우저 검증은 하지 않았다. 다음 단계는 부족한 부품 후보의 격리 생성·검사·승격 절차를 설계/구현하는 것이다.
+
 ## 2026-10-22 부품 판단 계약 세 번째 증분 (미커밋)
 
 - 후보 검색 두 번째 증분은 사용자 승인 후 `a9f504c feat: add deterministic component matching and decision log`로 커밋했다. push는 하지 않았다.

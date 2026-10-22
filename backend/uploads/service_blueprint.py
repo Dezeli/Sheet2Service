@@ -203,8 +203,12 @@ def parse_blueprint_response(raw, report):
 
 def parse_revision_response(raw, report, current):
     """Return a validated proposal; the caller decides whether to activate it."""
+    return validate_revision_value(_parse_json(raw), report, current)
+
+
+def validate_revision_value(result, report, current):
+    """Validate a decoded revision, including the unchanged-config rule."""
     validate_blueprint(current, report)
-    result = _parse_json(raw)
     _object(result, ("status", "message", "blueprint"))
     if result["status"] not in ("applied", "unsupported", "needs_input"):
         raise BlueprintError("수정 결과 상태가 올바르지 않습니다.")

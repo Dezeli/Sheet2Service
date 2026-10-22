@@ -3,9 +3,11 @@
 import copy
 import json
 from pathlib import Path
-from unittest import TestCase
+
+from django.test import TestCase
 
 from .analysis import analyze
+from .component_planning import parse_planned_revision
 from .service_blueprint import BlueprintError, parse_blueprint_response, parse_revision_response
 from .service_blueprint_request import blueprint_schema
 
@@ -21,7 +23,7 @@ class ServiceBlueprintTests(TestCase):
     def test_example_and_revision_are_valid_for_non_sports_csv(self):
         self.assertEqual(parse_blueprint_response(json.dumps(self.current), self.report), self.current)
         revised = json.loads((EXAMPLES / "service_blueprint_revision_response.example.json").read_text(encoding="utf-8"))
-        self.assertEqual(parse_revision_response(json.dumps(revised), self.report, self.current), revised)
+        self.assertEqual(parse_planned_revision(json.dumps(revised), self.report, self.current), revised)
 
     def test_rejects_nonexistent_csv_column_and_invalid_state_transition(self):
         invalid = copy.deepcopy(self.current)

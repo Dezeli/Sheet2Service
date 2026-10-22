@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework.test import APIClient, APITestCase
 
-from .models import BlueprintSubmission, ModelCall, Upload
+from .models import BlueprintSubmission, ComponentMatch, ModelCall, Upload
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "claude_api_settings" / "service_blueprint_response.example.json"
@@ -42,6 +42,13 @@ class BlueprintApiTests(APITestCase):
             "content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}],
             "usage": {"input_tokens": 20, "output_tokens": 30},
         }))
+
+    def decision(self, capabilities, decision, **changes):
+        item = {"surface": "user", "knownCapabilities": capabilities, "newRequirement": "",
+                "decision": decision, "baseComponent": "none", "blocker": "none",
+                "reason": "등록부와 필요한 기능을 비교했습니다.", "question": ""}
+        item.update(changes)
+        return [item]
 
     @patch("uploads.service_blueprint_views._post_message")
     def test_one_approved_generation_then_catalog_and_request_cycle(self, post_message):
@@ -89,6 +96,8 @@ class BlueprintApiTests(APITestCase):
         request = "프로그램 분류 필터를 변경해줘"
         approval = self.post("approval/", {"request": request, "current_page": "User"})
         self.assertEqual(approval.status_code, 200)
+        self.assertEqual(approval.data["planned_call_count"], 1)
+        self.assertIn("부품 등록부", approval.data["transmitted_data"])
         admin_approval = self.post("approval/", {"request": request, "current_page": "Admin"})
         self.assertNotEqual(approval.data["request_fingerprint"], admin_approval.data["request_fingerprint"])
         self.assertEqual(self.post("approval/", {"request": request, "current_page": "unknown"}).status_code, 400)
@@ -98,14 +107,18 @@ class BlueprintApiTests(APITestCase):
         self.assertEqual(self.post("revise/", {**body, "current_page": "Admin"}).status_code, 400)
         post_message.assert_not_called()
         post_message.return_value = self.provider({"status": "unsupported", "message": "재고 기능은 지원하지 않습니다.",
-                                                   "blueprint": self.blueprint})
+                                                   "blueprint": self.blueprint,
+                                                   "plans": self.decision([], "create",
+                                                       newRequirement="재고 수량 추적", blocker="no_related_component")})
         unsupported = self.post("revise/", body)
         self.assertEqual(unsupported.status_code, 200)
         self.assertEqual(unsupported.data["status"], "unsupported")
+        self.assertEqual(unsupported.data["plans"][0]["decision"], "create")
         invalid = copy.deepcopy(self.blueprint)
         invalid["catalog"]["titleColumn"] = 99
         post_message.return_value = self.provider({"status": "applied", "message": "수정했습니다.",
-                                                   "blueprint": invalid})
+                                                   "blueprint": invalid,
+                                                   "plans": self.decision(["catalog.filter_exact"], "reuse")})
         self.assertEqual(self.post("revise/", body).status_code, 400)
         self.upload.refresh_from_db()
         self.assertEqual(self.upload.service_blueprint, self.blueprint)
@@ -113,8 +126,30 @@ class BlueprintApiTests(APITestCase):
         changed = copy.deepcopy(self.blueprint)
         changed["catalog"]["filterColumns"] = [2, 3]
         post_message.return_value = self.provider({"status": "applied", "message": "장소 필터를 추가했습니다.",
-                                                   "blueprint": changed})
+                                                   "blueprint": changed,
+                                                   "plans": self.decision(["catalog.filter_exact"], "reuse")})
         applied = self.post("revise/", body)
         self.assertEqual(applied.status_code, 200)
         self.upload.refresh_from_db()
         self.assertEqual(self.upload.service_blueprint["catalog"]["filterColumns"], [2, 3])
+        self.assertEqual(ComponentMatch.objects.filter(upload=self.upload).count(), 2)
+
+    @patch("uploads.service_blueprint_views._post_message")
+    def test_revision_rejects_unimplemented_feature_claimed_as_applied(self, post_message):
+        self.upload.service_blueprint = self.blueprint
+        self.upload.save(update_fields=["service_blueprint"])
+        request = "이 서비스에 로그인 기능을 추가해줘"
+        approval = self.post("approval/", {"request": request, "current_page": "User"})
+        body = {"request": request, "current_page": "User", "approved": True,
+                "request_fingerprint": approval.data["request_fingerprint"],
+                "approval_note": "approved synthetic revision"}
+        changed = copy.deepcopy(self.blueprint)
+        changed["title"] = "로그인 서비스"
+        post_message.return_value = self.provider({"status": "applied", "message": "로그인을 추가했습니다.",
+                                                   "blueprint": changed,
+                                                   "plans": self.decision(["account.login"], "create",
+                                                       surface="platform", blocker="no_related_component")})
+        self.assertEqual(self.post("revise/", body).status_code, 400)
+        self.upload.refresh_from_db()
+        self.assertEqual(self.upload.service_blueprint, self.blueprint)
+        self.assertEqual(ComponentMatch.objects.count(), 0)

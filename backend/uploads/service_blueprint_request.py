@@ -6,6 +6,7 @@ from pathlib import Path
 
 from django.conf import settings
 
+from .component_planning import planning_extension
 from .preview_request_v2 import build_input
 from .service_blueprint import FIELD_IDS, STATE_IDS, WORKFLOW_IDS, validate_blueprint
 
@@ -67,6 +68,7 @@ def request_body(report, *, current=None, user_request=None, current_page=None):
         system = "service_blueprint_create_system.md"
         content = "service_blueprint_create_content.md"
         schema = blueprint_schema(report)
+        extension = None
     else:
         validate_blueprint(current, report)
         if not isinstance(user_request, str) or not 10 <= len(user_request.strip()) <= MAX_USER_REQUEST:
@@ -77,12 +79,16 @@ def request_body(report, *, current=None, user_request=None, current_page=None):
                             CURRENT_PAGE_JSON=PAGE_LABELS[current_page])
         system = "service_blueprint_revision_system.md"
         content = "service_blueprint_revision_content.md"
+        extension = planning_extension()
         schema = _object({"status": {"type": "string", "enum": ["applied", "unsupported", "needs_input"]},
-                          "message": {"type": "string"}, "blueprint": blueprint_schema(report)})
+                          "message": {"type": "string"}, "blueprint": blueprint_schema(report),
+                          "plans": extension["schema"]["properties"]["plans"]})
     body = {"model": getattr(settings, "ANTHROPIC_MODEL", "claude-sonnet-5") or "claude-sonnet-5",
             "max_tokens": getattr(settings, "ANTHROPIC_MAX_TOKENS", 8000),
-            "system": (SETTINGS_DIR / system).read_text(encoding="utf-8"),
-            "messages": [{"role": "user", "content": _render(content, replacements)}],
+            "system": (SETTINGS_DIR / system).read_text(encoding="utf-8") +
+                      ("\n\n" + extension["system"] if extension else ""),
+            "messages": [{"role": "user", "content": _render(content, replacements) +
+                          ("\n\n" + extension["content"] if extension else "")}],
             "output_config": {"format": {"type": "json_schema", "schema": schema}}}
     if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > MAX_REQUEST_BYTES:
         raise ValueError("Claude 요청 크기가 허용 범위를 넘었습니다.")
@@ -97,5 +103,5 @@ def fingerprint(body):
 def approval_summary(body, *, revision=False):
     return {"purpose": "서비스 수정" if revision else "CSV에 맞는 서비스 생성",
             "model": body["model"], "planned_call_count": 1, "automatic_retries": 0,
-            "transmitted_data": "CSV 컬럼 분석과 최대 10개 예시 행, 수정 시 현재 서비스 설정과 입력한 요청",
+            "transmitted_data": "CSV 컬럼 분석과 최대 10개 예시 행, 수정 시 현재 서비스 설정·입력한 요청·부품 등록부 메타데이터",
             "original_csv_file": False, "request_fingerprint": fingerprint(body)}

@@ -16,10 +16,12 @@ from rest_framework.response import Response
 
 from .call_records import finish_call, start_call
 from .claude import _extract_text, _post_message
+from .component_matching import record_component_match
+from .component_planning import parse_planned_revision
 from .inference import InferenceError
 from .managed import ensure_imported
 from .models import BlueprintSubmission, ManagedRow, ModelCall, Upload
-from .service_blueprint import BlueprintError, parse_blueprint_response, parse_revision_response
+from .service_blueprint import BlueprintError, parse_blueprint_response
 from .service_blueprint_request import approval_summary, fingerprint, request_body
 from .views import SessionView, owned
 
@@ -43,8 +45,13 @@ def _run_model(upload, body, *, revision, approval_note):
         if provider.get("stop_reason") == "max_tokens":
             raise BlueprintError("Claude 응답이 길이 제한으로 중단되었습니다.")
         raw = _extract_text(provider)
-        result = (parse_revision_response(raw, upload.analysis, upload.service_blueprint)
+        result = (parse_planned_revision(raw, upload.analysis, upload.service_blueprint)
                   if revision else parse_blueprint_response(raw, upload.analysis))
+        if revision:
+            for plan in result["plans"]:
+                if plan["decision"] != "needs_input":
+                    required = plan["knownCapabilities"] + (["request.unclassified"] if plan["newRequirement"].strip() else [])
+                    record_component_match(plan["surface"], required, upload=upload)
         finish_call(call, status=ModelCall.Status.SUCCEEDED, response_body=response_text,
                     http_status=http_status, provider_request_id=headers.get("request-id", ""),
                     parsed_result=result, usage=usage)
