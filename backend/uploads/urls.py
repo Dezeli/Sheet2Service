@@ -12,6 +12,7 @@ from .quote_views import QuoteRequestsView, QuoteRequestView
 from .service_blueprint_views import (BlueprintApprovalView, BlueprintGenerateView,
                                       BlueprintRevisionView, BlueprintSubmissionsView,
                                       BlueprintSubmissionView, BlueprintRowsView)
+from .component_draft_views import ComponentDraftApprovalView, ComponentDraftGenerateView
 
 urlpatterns = [
     path("session/", BootstrapView.as_view()),
@@ -21,6 +22,8 @@ urlpatterns = [
     path("uploads/<uuid:pk>/blueprint/approval/", BlueprintApprovalView.as_view()),
     path("uploads/<uuid:pk>/blueprint/generate/", BlueprintGenerateView.as_view()),
     path("uploads/<uuid:pk>/blueprint/revise/", BlueprintRevisionView.as_view()),
+    path("uploads/<uuid:pk>/component-drafts/approval/", ComponentDraftApprovalView.as_view()),
+    path("uploads/<uuid:pk>/component-drafts/generate/", ComponentDraftGenerateView.as_view()),
     path("uploads/<uuid:pk>/blueprint/submissions/", BlueprintSubmissionsView.as_view()),
     path("uploads/<uuid:pk>/blueprint/submissions/<uuid:submission_id>/", BlueprintSubmissionView.as_view()),
     path("uploads/<uuid:pk>/blueprint/rows/", BlueprintRowsView.as_view()),

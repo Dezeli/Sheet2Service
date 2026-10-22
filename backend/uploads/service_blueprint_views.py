@@ -48,16 +48,23 @@ def _run_model(upload, body, *, revision, approval_note):
         raw = _extract_text(provider)
         result = (parse_planned_revision(raw, upload.analysis, upload.service_blueprint)
                   if revision else parse_blueprint_response(raw, upload.analysis))
-        if revision:
-            for plan in result["plans"]:
-                if plan["decision"] != "needs_input":
-                    required = plan["knownCapabilities"] + (["request.unclassified"] if plan["newRequirement"].strip() else [])
-                    match, _ = record_component_match(plan["surface"], required, upload=upload)
-                    if result["status"] == "unsupported" and plan["decision"] in ("extend", "create"):
-                        record_component_candidate(plan, match)
-        finish_call(call, status=ModelCall.Status.SUCCEEDED, response_body=response_text,
-                    http_status=http_status, provider_request_id=headers.get("request-id", ""),
-                    parsed_result=result, usage=usage)
+        with transaction.atomic():
+            if revision:
+                candidates = []
+                for index, plan in enumerate(result["plans"]):
+                    if plan["decision"] != "needs_input":
+                        required = plan["knownCapabilities"] + (["request.unclassified"] if plan["newRequirement"].strip() else [])
+                        match, _ = record_component_match(plan["surface"], required, upload=upload)
+                        match.model_call = call
+                        if result["status"] == "unsupported" and plan["decision"] in ("extend", "create"):
+                            candidate = record_component_candidate(plan, match)
+                            match.candidate = candidate
+                            candidates.append({"plan_index": index, "id": candidate.pk})
+                        match.save(update_fields=["candidate", "model_call"])
+                result["candidates"] = candidates
+            finish_call(call, status=ModelCall.Status.SUCCEEDED, response_body=response_text,
+                        http_status=http_status, provider_request_id=headers.get("request-id", ""),
+                        parsed_result=result, usage=usage)
         return result
     except (ValueError, InferenceError, BlueprintError) as exc:
         if ModelCall.objects.filter(pk=call.pk, status=ModelCall.Status.STARTED).exists():

@@ -30,6 +30,14 @@
 .blueprint-chat-message.user { margin-left: auto; color: #fff; background: #2457c5; }
 .blueprint-chat-message.assistant { background: #fff; border: 1px solid #dce3ee; }
 .blueprint-chat-message.error { border-color: #d68181; }
+.blueprint-draft-action { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5eaf2; }
+.blueprint-draft-action small { color: #55657a; font-size: .74rem; line-height: 1.45; }
+.blueprint-draft-action button { justify-self: start; font-size: .78rem; padding: 7px 10px; }
+.blueprint-draft-result { min-width: 0; }
+.blueprint-draft-result p { margin: 4px 0 8px; }
+.blueprint-draft-result details { margin-top: 7px; border: 1px solid #dce3ee; border-radius: 8px; background: #f8fafc; }
+.blueprint-draft-result summary { cursor: pointer; padding: 6px 8px; font-weight: 650; }
+.blueprint-draft-result pre { max-height: 260px; overflow: auto; margin: 0; padding: 8px; border-top: 1px solid #dce3ee; font-size: .7rem; white-space: pre; }
 .blueprint-chat-form { display: grid; gap: 8px; padding: 14px 16px 16px; border-top: 1px solid #dce3ee; }
 .blueprint-chat-form label { font-weight: 650; }
 .blueprint-chat-form textarea { width: 100%; min-height: 80px; resize: vertical; }

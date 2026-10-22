@@ -1,0 +1,12 @@
+{
+  "status": "draft",
+  "surface": "user",
+  "capabilities": ["catalog.list"],
+  "baseComponent": "catalog-browser-v1",
+  "summary": "사용자 탭에서 항목 수를 표시하는 화면 초안. 목록 수 변화와 빈 목록을 검사한다.",
+  "question": "",
+  "files": [
+    {"role": "frontend", "source": "export default function CountBadge({ count }) { return <span>{count}</span>; }"},
+    {"role": "style", "source": ".count-badge { font-weight: 600; }"}
+  ]
+}

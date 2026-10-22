@@ -173,8 +173,8 @@ def normalize_display_columns(value, report):
     return result
 
 
-def _parse_json(raw):
-    if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_RESPONSE_BYTES:
+def _parse_json(raw, *, max_bytes=MAX_RESPONSE_BYTES):
+    if not isinstance(raw, str) or len(raw.encode("utf-8")) > max_bytes:
         raise BlueprintError("응답 크기가 허용 범위를 벗어났습니다.")
 
     def unique_object(pairs):

@@ -107,6 +107,10 @@ class ComponentMatch(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     upload = models.ForeignKey(Upload, null=True, blank=True, on_delete=models.CASCADE,
                                related_name="component_matches")
+    candidate = models.ForeignKey("ComponentCandidate", null=True, blank=True,
+                                  on_delete=models.SET_NULL, related_name="matches")
+    model_call = models.ForeignKey("ModelCall", null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name="component_matches")
     surface = models.CharField(max_length=16)
     requested_capabilities = models.JSONField()
     outcome = models.CharField(max_length=16, choices=Outcome.choices)
@@ -146,6 +150,25 @@ class ComponentCandidate(models.Model):
 
     class Meta:
         ordering = ["-last_seen_at", "signature"]
+
+
+class ComponentDraft(models.Model):
+    """Generated source kept as data until an isolated validator exists."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        NEEDS_INPUT = "needs_input", "Needs input"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    candidate = models.ForeignKey(ComponentCandidate, on_delete=models.PROTECT, related_name="drafts")
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="component_drafts")
+    model_call = models.OneToOneField("ModelCall", on_delete=models.PROTECT, related_name="component_draft")
+    status = models.CharField(max_length=16, choices=Status.choices)
+    content = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
 
 class FieldChoice(models.Model):

@@ -73,3 +73,9 @@ JSON Schema의 enum은 **허용된 컬럼을 선택했는지** 제한한다. 그
 서비스 수정 요청에 부품 판단을 포함시키기 위한 [시스템 지침](component_decision_system.md), [등록부 콘텐츠](component_decision_content.md), [응답 예시](component_decision_response.example.json)를 둔다. `uploads.component_planning.planning_extension()`이 현재 사용 가능·폐기 부품의 메타데이터와 enum 기반 JSON Schema를 만든다. `validate_decision()`은 응답을 등록부 후보 검색으로 재검증한다.
 
 현재 수정 API는 기존 **수정 요청 한 번의 호출**에 이 콘텐츠와 `plans` 스키마를 합친다. 응답의 계획은 기존 설정 수정 결과와 함께 검증한다. `applied`는 `reuse/compose` 판단만 허용하고, `unsupported`는 `extend/create` 판단을 요구한다. 계획의 후보 검색 결과는 `ComponentMatch`에 기록한다. 별도 호출, 자동 재시도, 새 부품 코드 실행은 하지 않는다. `account.login` 등 미구현 기능의 enum은 사용자 요구를 표현할 뿐, 사용 가능 부품이라는 의미가 아니다. `newRequirement`·`reason`은 길이와 구조만 검증하며 의미상 타당성은 등록부 결과와 후속 검토가 필요하다.
+
+## 미구현 부품의 소스 초안
+
+[소스 초안 시스템 지침](component_draft_system.md), [후보 콘텐츠](component_draft_content.md), [응답 예시](component_draft_response.example.json)는 별도 버튼의 **Claude 1회 호출**에 사용한다. 앱은 호출 전에 후보 기능·미등록 요구·짧은 근거·관련 후보 메타데이터가 전송된다고 안내한다. 현재 업로드의 검증된 수정 응답에서 후보의 문구를 읽으므로 공용 후보에 저장된 다른 업로드의 자유 문구를 보내지 않는다. 원본 CSV와 예시 행은 보내지 않는다.
+
+응답은 역할별 소스 문자열로 DB의 `ComponentDraft`에 저장하고 화면에서 읽기 전용으로 보여준다. 검증은 구조·크기·주장 기능·Python 구문까지만 수행한다. **코드 실행, 실제 기능 테스트, 격리 검증, 런타임 설치, 공용 승격은 아직 하지 않는다.** 초안은 `ComponentVersion.available`에 나타나지 않으며 서비스 동작을 바꾸지 않는다. `component_draft_response.example.json`은 형식 참고용으로, 완성된 기능 구현 사례가 아니다.

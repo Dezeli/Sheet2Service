@@ -114,7 +114,9 @@ class BlueprintApiTests(APITestCase):
         self.assertEqual(unsupported.status_code, 200)
         self.assertEqual(unsupported.data["status"], "unsupported")
         self.assertEqual(unsupported.data["plans"][0]["decision"], "create")
-        self.assertEqual(ComponentCandidate.objects.get().new_requirement, "재고 수량 추적")
+        candidate = ComponentCandidate.objects.get()
+        self.assertEqual(candidate.new_requirement, "재고 수량 추적")
+        self.assertEqual(ComponentMatch.objects.get(candidate=candidate).upload, self.upload)
         invalid = copy.deepcopy(self.blueprint)
         invalid["catalog"]["titleColumn"] = 99
         post_message.return_value = self.provider({"status": "applied", "message": "수정했습니다.",
