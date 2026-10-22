@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './style.css';
 import './fonts.css';
 import TemplateExamples from './preview/TemplateExamples';
+import BlueprintService from './blueprint/BlueprintService';
 import WorkflowReview from './workflow/WorkflowReview';
 import ServiceFeatures from './workflow/ServiceFeatures';
 import './theme.css';
@@ -139,7 +140,7 @@ function App() {
       body.append('file', selected); body.append('encoding', 'auto');
       const uploaded = await api('/api/uploads/', { method: 'POST', body, headers: { 'X-CSRFToken': csrf_token } });
       setUpload(uploaded);
-      const summary = await api(`/api/uploads/${uploaded.id}/inference/`);
+      const summary = await api(`/api/uploads/${uploaded.id}/blueprint/approval/`);
       setCallSummary(summary);
     } catch (err) {
       setError(err instanceof TypeError ? '서버에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.' : err.message);
@@ -149,7 +150,7 @@ function App() {
   async function retrySummary() {
     if (!upload || busy || submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
-    try { setCallSummary(await api(`/api/uploads/${upload.id}/inference/`)); }
+    try { setCallSummary(await api(`/api/uploads/${upload.id}/blueprint/approval/`)); }
     catch (caught) { setError(caught.message); }
     finally { submitting.current = false; setBusy(false); }
   }
@@ -158,10 +159,28 @@ function App() {
     if (!upload || !callSummary || busy || submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
     try {
+      await api(`/api/uploads/${upload.id}/blueprint/generate/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ approved: true, request_fingerprint: callSummary.request_fingerprint,
+          approval_note: `생성 확인 모달의 서비스 생성 버튼으로 ${callSummary.model} 1회 호출 승인` }),
+      });
+      window.location.assign(`/${upload.id}/User`);
+    } catch (err) {
+      setError(err instanceof TypeError ? '서버에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.' : err.message);
+    } finally { submitting.current = false; setBusy(false); }
+  }
+
+  async function generateLegacy() {
+    if (!upload || busy || submitting.current) return;
+    submitting.current = true; setBusy(true); setError('');
+    try {
+      const summary = await api(`/api/uploads/${upload.id}/inference/`);
       await api(`/api/uploads/${upload.id}/inference/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ approved: true, approval_note: `생성 확인 모달의 서비스 생성 버튼으로 ${callSummary.model} 1회 호출 승인` }),
+        body: JSON.stringify({ approved: true,
+          approval_note: `기존 템플릿 생성 버튼으로 ${summary.model} 1회 호출 승인` }),
       });
       window.location.assign(`/select?upload=${upload.id}`);
     } catch (err) {
@@ -181,7 +200,7 @@ function App() {
       <div className="upload-hero">
       <div className="upload-intro">
       <h2 className="upload-headline"><span className="upload-headline-line">복잡한 스프레드시트를</span><br /><span className="upload-headline-accent">서비스로.</span></h2>
-      <p className="upload-description">파일을 올리고, 필요한 서비스와 기능을 골라보세요.</p>
+       <p className="upload-description">CSV를 올리면 데이터에 맞는 서비스 초안을 만듭니다.</p>
       <figure className="upload-visual">
         <img src="/images/sheet2service-workspace.png" alt="스프레드시트가 열린 노트북 작업 공간" width="1024" height="768" fetchPriority="high" />
       </figure>
@@ -195,7 +214,8 @@ function App() {
       </div>
       </div>
       {confirmOpen && file && <GenerateDialog file={file} summary={callSummary} busy={busy} error={error}
-        canRetry={!!upload && !callSummary} onRetry={retrySummary} onConfirm={generate} onClose={cancelUpload} />}
+         canRetry={!!upload && !callSummary} onRetry={retrySummary} onConfirm={generate}
+         onLegacy={generateLegacy} onClose={cancelUpload} />}
       {!confirmOpen && error && <div className="error" role="alert">{error}</div>}
     </main>
   );
@@ -269,7 +289,7 @@ function ServicePage({ uploadId, page }) {
       <div className="service-topline"><a className="service-brand" href="/">Sheet2Service</a>
       <nav className="service-switch" aria-label="서비스 화면 이동">
         <a href={`/${uploadId}/DashBoard`} aria-current={page === 'DashBoard' ? 'page' : undefined}>대시보드</a>
-        {service?.workflow_config && <a href={`/${uploadId}/User`} aria-current={page === 'User' ? 'page' : undefined}>사용자</a>}
+         {(service?.workflow_config || service?.blueprint) && <a href={`/${uploadId}/User`} aria-current={page === 'User' ? 'page' : undefined}>사용자</a>}
         <a href={`/${uploadId}/Admin`} aria-current={page === 'Admin' ? 'page' : undefined}>관리자</a>
       </nav>
       </div>
@@ -282,9 +302,10 @@ function ServicePage({ uploadId, page }) {
     {service?.workflow_required && !service.workflow_config && <p className="notice">
       사용할 기능을 먼저 선택해 주세요.
     </p>}
-    {service && (!service.workflow_required || service.workflow_config) &&
-      <ServiceFeatures uploadId={uploadId} page={page} service={service}
-        requestMetrics={<RequestMetrics uploadId={uploadId} enabled />} />}
+     {service?.blueprint ? <BlueprintService uploadId={uploadId} page={page} service={service} />
+       : service && (!service.workflow_required || service.workflow_config) &&
+         <ServiceFeatures uploadId={uploadId} page={page} service={service}
+           requestMetrics={<RequestMetrics uploadId={uploadId} enabled />} />}
   </main>;
 }
 

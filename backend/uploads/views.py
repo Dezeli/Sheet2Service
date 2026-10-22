@@ -116,6 +116,8 @@ class ServiceView(SessionView):
     def get(self, request, pk):
         upload = owned(request, pk)
         ensure_imported(upload)
+        if upload.service_blueprint:
+            return Response({"upload": payload(upload), "blueprint": upload.service_blueprint})
         call = next((item for item in ModelCall.objects.filter(
             upload=upload, status=ModelCall.Status.SUCCEEDED).order_by("-completed_at", "-started_at")
             if isinstance(item.parsed_result, dict) and "preview" in item.parsed_result), None)

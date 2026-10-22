@@ -1,0 +1,38 @@
+.blueprint-service { display: grid; gap: 1.25rem; }
+.service-page .blueprint-search { margin: 18px 0 0; }
+.blueprint-search .list-filter-row:has(> .list-filter-actions:first-child) { display: flex; justify-content: flex-end; }
+.blueprint-workflow-history + .blueprint-workflow-history { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.blueprint-workflow-history > h3 { margin: 0 0 12px; }
+.blueprint-request-list li { display: flex; flex-direction: column; gap: 10px; }
+.blueprint-request-list li > div:first-child > .muted { display: block; margin-top: 4px; font-size: .75rem; }
+.blueprint-request-list dl { display: grid; gap: 4px; margin: 10px 0 0; }
+.blueprint-request-list dl div { display: flex; gap: 8px; min-width: 0; }
+.blueprint-request-list dt { flex-shrink: 0; color: #657386; font-size: .75rem; }
+.blueprint-request-list dd { margin: 0; font-size: .8rem; overflow-wrap: anywhere; }
+.blueprint-request-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.blueprint-management .request-subject-cell { align-items: flex-start; flex-direction: column; }
+.blueprint-table-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.blueprint-table-actions button { min-height: 32px; padding: 5px 9px; font-size: .75rem; }
+.service-page .blueprint-management { margin: 0; }
+.blueprint-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.blueprint-chart-grid ul { list-style: none; padding: 0; }
+.blueprint-chart-grid li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px solid #eee; }
+.blueprint-chat-toggle { position: fixed; right: 24px; bottom: 24px; z-index: 30; box-shadow: 0 8px 24px #1e293b33; }
+.blueprint-chat { position: fixed; top: 16px; right: 16px; bottom: 76px; z-index: 31; display: flex; flex-direction: column; width: min(400px, calc(100vw - 32px)); background: #fff; border: 1px solid #dce3ee; border-radius: 16px; box-shadow: 0 14px 45px #1e293b38; overflow: hidden; }
+.blueprint-chat-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; color: #fff; background: #2457c5; }
+.blueprint-chat-header div { display: grid; gap: 3px; }
+.blueprint-chat-header span { font-size: .8rem; opacity: .9; }
+.blueprint-chat-header button { padding: 2px 9px; color: #fff; background: transparent; font-size: 1.5rem; }
+.blueprint-chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: #f8fafc; }
+.blueprint-chat-intro { margin: 0 0 16px; color: #4b5563; font-size: .9rem; line-height: 1.5; }
+.blueprint-chat-message { max-width: 90%; margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.blueprint-chat-message span { display: block; margin-bottom: 3px; font-size: .75rem; font-weight: 700; }
+.blueprint-chat-message.user { margin-left: auto; color: #fff; background: #2457c5; }
+.blueprint-chat-message.assistant { background: #fff; border: 1px solid #dce3ee; }
+.blueprint-chat-message.error { border-color: #d68181; }
+.blueprint-chat-form { display: grid; gap: 8px; padding: 14px 16px 16px; border-top: 1px solid #dce3ee; }
+.blueprint-chat-form label { font-weight: 650; }
+.blueprint-chat-form textarea { width: 100%; min-height: 80px; resize: vertical; }
+.blueprint-chat-form p { margin: 0; color: #55657a; font-size: .75rem; line-height: 1.4; }
+.blueprint-chat-form button { justify-self: end; }
+@media (max-width: 480px) { .blueprint-chat { top: 8px; right: 8px; bottom: 68px; width: calc(100vw - 16px); } .blueprint-chat-toggle { right: 12px; bottom: 12px; } }

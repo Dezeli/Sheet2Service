@@ -10,21 +10,21 @@
     "charts": [{"kind": "count_by", "groupColumn": 2}]
   },
   "workflows": [{
-    "id": "application",
+    "id": "flow_1",
     "title": "프로그램 신청",
     "subjectColumn": 1,
-    "fields": [{"id": "message", "label": "신청 내용", "type": "text", "required": false}],
+    "fields": [{"id": "field_1", "label": "신청 내용", "type": "text", "required": false}],
     "states": [
-      {"id": "pending", "label": "검토 중"},
-      {"id": "approved", "label": "승인"},
-      {"id": "rejected", "label": "거절"},
-      {"id": "cancelled", "label": "취소"}
+      {"id": "state_1", "label": "검토 중"},
+      {"id": "state_2", "label": "승인"},
+      {"id": "state_3", "label": "거절"},
+      {"id": "state_4", "label": "취소"}
     ],
-    "initialState": "pending",
+    "initialState": "state_1",
     "transitions": [
-      {"from": "pending", "to": "approved", "actor": "admin", "label": "승인"},
-      {"from": "pending", "to": "rejected", "actor": "admin", "label": "거절"},
-      {"from": "pending", "to": "cancelled", "actor": "owner", "label": "신청 취소"}
+      {"from": "state_1", "to": "state_2", "actor": "admin", "label": "승인"},
+      {"from": "state_1", "to": "state_3", "actor": "admin", "label": "거절"},
+      {"from": "state_1", "to": "state_4", "actor": "owner", "label": "신청 취소"}
     ]
   }]
 }

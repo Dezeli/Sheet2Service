@@ -2,11 +2,15 @@
 
 import json
 import re
+from copy import deepcopy
 
 
 MAX_RESPONSE_BYTES = 32_000
 MAX_WORKFLOWS = 3
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+WORKFLOW_IDS = tuple(f"flow_{index}" for index in range(1, MAX_WORKFLOWS + 1))
+FIELD_IDS = tuple(f"field_{index}" for index in range(1, 7))
+STATE_IDS = tuple(f"state_{index}" for index in range(1, 7))
 
 
 class BlueprintError(ValueError):
@@ -84,8 +88,8 @@ def validate_blueprint(value, report):
     for workflow in workflows:
         _object(workflow, ("id", "title", "subjectColumn", "fields", "states", "initialState", "transitions"))
         workflow_id = _id(workflow["id"])
-        if workflow_id in workflow_ids:
-            raise BlueprintError("업무 흐름 ID가 중복되었습니다.")
+        if workflow_id not in WORKFLOW_IDS or workflow_id in workflow_ids:
+            raise BlueprintError("업무 흐름 ID가 허용 범위 밖이거나 중복되었습니다.")
         workflow_ids.add(workflow_id)
         _text(workflow["title"], 80)
         _column(workflow["subjectColumn"], allowed)
@@ -97,7 +101,8 @@ def validate_blueprint(value, report):
         for field in fields:
             _object(field, ("id", "label", "type", "required"))
             field_id = _id(field["id"])
-            if field_id in field_ids or field["type"] not in ("text", "number", "date") or type(field["required"]) is not bool:
+            if field_id not in FIELD_IDS or field_id in field_ids \
+                    or field["type"] not in ("text", "number", "date") or type(field["required"]) is not bool:
                 raise BlueprintError("입력 필드 설정이 올바르지 않습니다.")
             field_ids.add(field_id)
             _text(field["label"], 48)
@@ -109,7 +114,7 @@ def validate_blueprint(value, report):
         for state in states:
             _object(state, ("id", "label"))
             state_id = _id(state["id"])
-            if state_id in state_ids:
+            if state_id not in STATE_IDS or state_id in state_ids:
                 raise BlueprintError("상태 ID가 중복되었습니다.")
             state_ids.add(state_id)
             _text(state["label"], 48)
@@ -131,6 +136,41 @@ def validate_blueprint(value, report):
             seen.add(signature)
             _text(transition["label"], 48)
     return value
+
+
+def _unique_columns(values, limit, allowed):
+    """Validate every reference, then keep the model's priority order."""
+    if not isinstance(values, list):
+        return values
+    result = []
+    seen = set()
+    for value in values:
+        _column(value, allowed)
+        if value not in seen:
+            seen.add(value)
+            if len(result) < limit:
+                result.append(value)
+    return result
+
+
+def normalize_display_columns(value, report):
+    """Only normalize harmless presentation lists, never a workflow or rule."""
+    result = deepcopy(value)
+    if not isinstance(result, dict) or not isinstance(result.get("catalog"), dict):
+        return result
+    catalog = result["catalog"]
+    allowed = set(range(1, len(report.get("columns", [])) + 1))
+    for name, limit in (("visibleColumns", 12), ("searchColumns", 12), ("filterColumns", 5)):
+        if name in catalog:
+            catalog[name] = _unique_columns(catalog[name], limit, allowed)
+    if isinstance(catalog.get("charts"), list):
+        for chart in catalog["charts"]:
+            _object(chart, ("kind", "groupColumn"))
+            if chart["kind"] != "count_by":
+                raise BlueprintError("지원하지 않는 차트입니다.")
+            _column(chart["groupColumn"], allowed)
+        catalog["charts"] = catalog["charts"][:4]
+    return result
 
 
 def _parse_json(raw):
@@ -158,7 +198,7 @@ def _parse_json(raw):
 
 def parse_blueprint_response(raw, report):
     """Accept one full JSON blueprint; old config stays active if this raises."""
-    return validate_blueprint(_parse_json(raw), report)
+    return validate_blueprint(normalize_display_columns(_parse_json(raw), report), report)
 
 
 def parse_revision_response(raw, report, current):
@@ -169,7 +209,7 @@ def parse_revision_response(raw, report, current):
     if result["status"] not in ("applied", "unsupported", "needs_input"):
         raise BlueprintError("수정 결과 상태가 올바르지 않습니다.")
     _text(result["message"], 180)
-    validate_blueprint(result["blueprint"], report)
+    result["blueprint"] = validate_blueprint(normalize_display_columns(result["blueprint"], report), report)
     unchanged = result["blueprint"] == current
     if result["status"] == "applied" and unchanged:
         raise BlueprintError("수정되었다는 응답에 변경 사항이 없습니다.")

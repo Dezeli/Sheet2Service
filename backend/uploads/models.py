@@ -18,6 +18,7 @@ class Upload(models.Model):
     analysis = models.JSONField(null=True)
     managed = models.BooleanField(default=False)
     workflow_config = models.JSONField(null=True, blank=True)
+    service_blueprint = models.JSONField(null=True, blank=True)
     field_labels = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -31,6 +32,23 @@ class ManagedRow(models.Model):
     class Meta:
         ordering = ["row_number"]
         constraints = [models.UniqueConstraint(fields=["upload", "row_number"], name="unique_managed_row_number")]
+
+
+class BlueprintSubmission(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="blueprint_submissions")
+    workflow_id = models.CharField(max_length=32)
+    subject_row = models.ForeignKey(ManagedRow, null=True, on_delete=models.SET_NULL)
+    subject_snapshot = models.TextField()
+    values = models.JSONField(default=dict)
+    status = models.CharField(max_length=32)
+    workflow_snapshot = models.JSONField()
+    created_by_session = models.CharField(max_length=40, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
 
 class FieldChoice(models.Model):

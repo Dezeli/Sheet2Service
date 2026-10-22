@@ -7,6 +7,7 @@ from unittest import TestCase
 
 from .analysis import analyze
 from .service_blueprint import BlueprintError, parse_blueprint_response, parse_revision_response
+from .service_blueprint_request import blueprint_schema
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "claude_api_settings"
@@ -47,3 +48,23 @@ class ServiceBlueprintTests(TestCase):
             parse_blueprint_response(json.dumps(invalid), self.report)
         with self.assertRaises(BlueprintError):
             parse_blueprint_response('{"version":1,"version":1}', self.report)
+
+    def test_enum_schema_and_bounded_display_lists(self):
+        report = analyze((",".join(f"column_{i}" for i in range(1, 17)) + "\n" +
+                          ",".join(f"value_{i}" for i in range(1, 17)) + "\n").encode())
+        schema = blueprint_schema(report)
+        workflow = schema["properties"]["workflows"]["items"]
+        self.assertEqual(workflow["properties"]["id"]["enum"], ["flow_1", "flow_2", "flow_3"])
+        self.assertEqual(schema["properties"]["catalog"]["properties"]["titleColumn"]["enum"],
+                         list(range(1, 17)))
+        proposal = copy.deepcopy(self.current)
+        proposal["catalog"]["visibleColumns"] = list(range(1, 15))
+        proposal["catalog"]["filterColumns"] = list(range(1, 7))
+        proposal["catalog"]["searchColumns"] = [1, 2, 2, 3]
+        normalized = parse_blueprint_response(json.dumps(proposal), report)
+        self.assertEqual(normalized["catalog"]["visibleColumns"], list(range(1, 13)))
+        self.assertEqual(normalized["catalog"]["filterColumns"], [1, 2, 3, 4, 5])
+        self.assertEqual(normalized["catalog"]["searchColumns"], [1, 2, 3])
+        proposal["catalog"]["visibleColumns"].append(99)
+        with self.assertRaises(BlueprintError):
+            parse_blueprint_response(json.dumps(proposal), report)
