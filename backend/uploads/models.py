@@ -1,6 +1,9 @@
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
+
+from .component_contract import valid_component_contract
 
 
 def original_path(instance, filename):
@@ -49,6 +52,48 @@ class BlueprintSubmission(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+
+
+class ComponentVersion(models.Model):
+    """Reviewed runtime capability metadata; executable code stays in the repository."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        VALIDATED = "validated", "Validated"
+        AVAILABLE = "available", "Available"
+        DEPRECATED = "deprecated", "Deprecated"
+
+    key = models.SlugField(max_length=80, unique=True)
+    family = models.SlugField(max_length=64)
+    version = models.PositiveSmallIntegerField()
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT,
+                               related_name="children")
+    title = models.CharField(max_length=80)
+    description = models.CharField(max_length=300)
+    implementation = models.CharField(max_length=40)
+    capabilities = models.JSONField(default=list)
+    surfaces = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["family", "version"]
+        constraints = [models.UniqueConstraint(fields=["family", "version"], name="unique_component_family_version")]
+
+    def clean(self):
+        super().clean()
+        if not valid_component_contract(self.implementation, self.capabilities, self.surfaces):
+            raise ValidationError("등록된 구현이 제공하는 기능·화면과 부품 계약이 다릅니다.")
+        if not self.parent_id and self.version != 1:
+            raise ValidationError("첫 부품은 버전 1이어야 하고 다음 버전은 부모가 필요합니다.")
+        if self.parent_id:
+            parent = self.parent
+            if parent.pk == self.pk or parent.family != self.family or parent.version >= self.version:
+                raise ValidationError("부품 부모는 같은 계열의 이전 버전이어야 합니다.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class FieldChoice(models.Model):
