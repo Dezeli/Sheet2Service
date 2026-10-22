@@ -118,8 +118,13 @@ def validate_decision(value, *, registry=None, allow_empty=False):
                     or match["outcome"] != "gap":
                 raise ValueError("새 부품 생성 근거가 올바르지 않습니다.")
             overlap = bool(match["selected_keys"] or match["candidate_reasons"])
-            if blocker == "no_related_component" and overlap:
-                raise ValueError("관련 후보가 있어 생성 근거를 다시 검토해야 합니다.")
+            # A plan can reuse submission parts while still lacking every reservation part.
+            # "Related" here refers to the missing behavior, not any covered capability.
+            missing = set(match["missing_capabilities"])
+            related_missing = any(item.status == ComponentVersion.Status.AVAILABLE
+                                  and missing & set(item.capabilities) for item in items)
+            if blocker == "no_related_component" and related_missing:
+                raise ValueError("부족한 기능을 가진 등록 부품이 있어 생성 근거를 다시 검토해야 합니다.")
             if blocker == "incompatible_contract" and not overlap:
                 raise ValueError("양립 불가능한 기존 계약이 확인되지 않았습니다.")
         results.append({"plan": plan, "match": match})

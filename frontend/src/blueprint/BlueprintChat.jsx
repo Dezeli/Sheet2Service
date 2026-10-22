@@ -25,6 +25,7 @@ export default function BlueprintChat({ uploadId, page, csrf, onApplied }) {
   const [busy, setBusy] = useState(false);
   const [draftBusy, setDraftBusy] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [pendingCandidates, setPendingCandidates] = useState([]);
   const [messages, setMessages] = useState(() => savedMessages(storageKey));
   const endRef = useRef(null);
 
@@ -32,6 +33,16 @@ export default function BlueprintChat({ uploadId, page, csrf, onApplied }) {
     try { sessionStorage.setItem(storageKey, JSON.stringify(messages.slice(-20))); } catch { /* Storage may be unavailable. */ }
     if (open) endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, open, storageKey]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let active = true;
+    fetch(`/api/uploads/${uploadId}/component-candidates/`, { credentials: 'same-origin' })
+      .then((response) => response.ok ? response.json() : { items: [] })
+      .then((value) => { if (active) setPendingCandidates(value.items || []); })
+      .catch(() => { if (active) setPendingCandidates([]); });
+    return () => { active = false; };
+  }, [open, uploadId]);
 
   async function submit(event) {
     event.preventDefault();
@@ -72,6 +83,28 @@ export default function BlueprintChat({ uploadId, page, csrf, onApplied }) {
     } finally { setDraftBusy(null); }
   }
 
+  function draftAction(candidateId) {
+    return <div key={candidateId} className="blueprint-draft-action">
+      <small>미구현 부품 후보 #{candidateId}. 초안 소스는 검증 전이며 서비스에 적용되지 않습니다.</small>
+      {!drafts[candidateId] && <>
+        <small>이 후보의 기능·요구·판단 근거와 관련 후보 메타데이터를 Claude에 보냅니다. 버튼을 누르면 1회 호출하며 자동 재시도하지 않습니다.</small>
+        <button type="button" disabled={busy || draftBusy !== null}
+          onClick={() => generateDraft(candidateId)}>
+          {draftBusy === candidateId ? '초안 생성 중...' : 'Claude 1회 호출하여 부품 초안 생성'}
+        </button>
+      </>}
+      {drafts[candidateId] && <div className="blueprint-draft-result">
+        <strong>{drafts[candidateId].status === 'draft' ? '생성된 소스 초안' : '추가 정보 필요'}</strong>
+        <p>{drafts[candidateId].status === 'draft' ? drafts[candidateId].summary : drafts[candidateId].question}</p>
+        {drafts[candidateId].files?.map((file) => <details key={file.role}>
+          <summary>{file.role}</summary><pre>{file.source}</pre>
+        </details>)}
+      </div>}
+    </div>;
+  }
+
+  const messageCandidateIds = new Set(messages.flatMap((item) => item.candidateIds || []));
+
   return <>
     <button type="button" className="blueprint-chat-toggle" aria-expanded={open}
       aria-controls="blueprint-chat-panel" onClick={() => setOpen((value) => !value)}>
@@ -84,26 +117,14 @@ export default function BlueprintChat({ uploadId, page, csrf, onApplied }) {
       </div>
       <div className="blueprint-chat-messages" role="log" aria-live="polite">
         <p className="blueprint-chat-intro">대시보드, 사용자, 관리자 화면의 목록·필터·차트·신청 흐름을 요청해 주세요. 현재 화면을 기준으로 “이 화면”이라고 말씀하셔도 됩니다.</p>
+        {pendingCandidates.filter((item) => !messageCandidateIds.has(item.id)).map((item) =>
+          <div key={item.id} className="blueprint-chat-message assistant">
+            <span>저장된 미구현 후보</span>{draftAction(item.id)}
+          </div>)}
         {messages.map((item, index) => <div key={index}
           className={`blueprint-chat-message ${item.role}${item.error ? ' error' : ''}`}>
           <span>{item.role === 'user' ? '나' : 'Claude'}</span>{item.text}
-          {item.candidateIds?.map((candidateId) => <div key={candidateId} className="blueprint-draft-action">
-            <small>미구현 부품 후보 #{candidateId}. 초안 소스는 검증 전이며 서비스에 적용되지 않습니다.</small>
-            {!drafts[candidateId] && <>
-              <small>이 후보의 기능·요구·판단 근거와 관련 후보 메타데이터를 Claude에 보냅니다. 버튼을 누르면 1회 호출하며 자동 재시도하지 않습니다.</small>
-              <button type="button" disabled={busy || draftBusy !== null}
-                onClick={() => generateDraft(candidateId)}>
-                {draftBusy === candidateId ? '초안 생성 중...' : 'Claude 1회 호출하여 부품 초안 생성'}
-              </button>
-            </>}
-            {drafts[candidateId] && <div className="blueprint-draft-result">
-              <strong>{drafts[candidateId].status === 'draft' ? '생성된 소스 초안' : '추가 정보 필요'}</strong>
-              <p>{drafts[candidateId].status === 'draft' ? drafts[candidateId].summary : drafts[candidateId].question}</p>
-              {drafts[candidateId].files?.map((file) => <details key={file.role}>
-                <summary>{file.role}</summary><pre>{file.source}</pre>
-              </details>)}
-            </div>}
-          </div>)}
+          {item.candidateIds?.map(draftAction)}
         </div>)}
         {busy && <p className="blueprint-chat-message assistant" role="status">수정 요청을 처리하고 있습니다...</p>}
         <div ref={endRef} />

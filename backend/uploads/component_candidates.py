@@ -56,7 +56,9 @@ def record_component_candidate(plan, match):
     if plan["decision"] not in ("extend", "create") or match.outcome != ComponentMatch.Outcome.GAP:
         raise ValueError("미구현 기능 판단만 후보로 기록할 수 있습니다.")
     requirement = " ".join(plan["newRequirement"].split())
-    capabilities = sorted(plan["knownCapabilities"])
+    # A new family implements the gap only; already selected parts stay reusable.
+    capabilities = sorted(set(plan["knownCapabilities"]) & set(match.missing_capabilities)) \
+        if plan["decision"] == "create" else sorted(plan["knownCapabilities"])
     identity = {"surface": plan["surface"], "capabilities": capabilities,
                 "new_requirement": requirement.casefold(), "decision": plan["decision"],
                 "base_component": plan["baseComponent"], "blocker": plan["blocker"]}

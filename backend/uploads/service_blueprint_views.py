@@ -16,9 +16,8 @@ from rest_framework.response import Response
 
 from .call_records import finish_call, start_call
 from .claude import _extract_text, _post_message
-from .component_candidates import record_component_candidate
-from .component_matching import record_component_match
 from .component_planning import parse_planned_revision
+from .component_recording import record_revision_matches
 from .inference import InferenceError
 from .managed import ensure_imported
 from .models import BlueprintSubmission, ManagedRow, ModelCall, Upload
@@ -50,18 +49,7 @@ def _run_model(upload, body, *, revision, approval_note):
                   if revision else parse_blueprint_response(raw, upload.analysis))
         with transaction.atomic():
             if revision:
-                candidates = []
-                for index, plan in enumerate(result["plans"]):
-                    if plan["decision"] != "needs_input":
-                        required = plan["knownCapabilities"] + (["request.unclassified"] if plan["newRequirement"].strip() else [])
-                        match, _ = record_component_match(plan["surface"], required, upload=upload)
-                        match.model_call = call
-                        if result["status"] == "unsupported" and plan["decision"] in ("extend", "create"):
-                            candidate = record_component_candidate(plan, match)
-                            match.candidate = candidate
-                            candidates.append({"plan_index": index, "id": candidate.pk})
-                        match.save(update_fields=["candidate", "model_call"])
-                result["candidates"] = candidates
+                record_revision_matches(upload, call, result)
             finish_call(call, status=ModelCall.Status.SUCCEEDED, response_body=response_text,
                         http_status=http_status, provider_request_id=headers.get("request-id", ""),
                         parsed_result=result, usage=usage)

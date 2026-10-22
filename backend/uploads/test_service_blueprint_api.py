@@ -8,9 +8,13 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
 
+from .call_records import finish_call, start_call
+from .component_recovery import OLD_ERROR, recover_failed_component_call
 from .models import BlueprintSubmission, ComponentCandidate, ComponentMatch, ModelCall, Upload
+from .service_blueprint_request import request_body
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "claude_api_settings" / "service_blueprint_response.example.json"
@@ -158,3 +162,52 @@ class BlueprintApiTests(APITestCase):
         self.assertEqual(self.upload.service_blueprint, self.blueprint)
         self.assertEqual(ComponentMatch.objects.count(), 0)
         self.assertEqual(ComponentCandidate.objects.count(), 0)
+
+    @patch("uploads.service_blueprint_views._post_message")
+    def test_reservation_gap_creates_only_missing_component_candidate(self, post_message):
+        self.upload.service_blueprint = self.blueprint
+        self.upload.save(update_fields=["service_blueprint"])
+        request = "체육시설 예약 시간대와 정원을 관리해줘"
+        approval = self.post("approval/", {"request": request, "current_page": "User"})
+        plan = self.decision(["reservation.time_slot", "reservation.capacity",
+                              "submission.create", "submission.transition"], "create",
+                             blocker="no_related_component")
+        post_message.return_value = self.provider({"status": "unsupported", "message": "예약 부품이 필요합니다.",
+                                                   "blueprint": self.blueprint, "plans": plan})
+        result = self.post("revise/", {"request": request, "current_page": "User",
+                                       "approved": True,
+                                       "request_fingerprint": approval.data["request_fingerprint"],
+                                       "approval_note": "approved synthetic revision"})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.data["status"], "unsupported")
+        self.assertEqual(result.data["candidates"][0]["id"], ComponentCandidate.objects.get().pk)
+        self.assertEqual(ComponentCandidate.objects.get().capabilities,
+                         ["reservation.capacity", "reservation.time_slot"])
+
+    def test_saved_overlap_failure_recovers_candidate_without_another_claude_call(self):
+        self.upload.service_blueprint = self.blueprint
+        self.upload.save(update_fields=["service_blueprint"])
+        plan = self.decision(["reservation.time_slot", "reservation.capacity",
+                              "submission.create", "submission.transition"], "create",
+                             blocker="no_related_component")
+        response = {"status": "unsupported", "message": "예약 부품이 필요합니다.",
+                    "blueprint": self.blueprint, "plans": plan}
+        body = request_body(self.upload.analysis, current=self.blueprint,
+                            user_request="체육시설 예약 시간대와 정원을 관리해줘", current_page="User")
+        call = start_call(upload=self.upload, purpose="서비스 수정", request_body=body,
+                          approval_note="synthetic approved", approved_at=timezone.now())
+        finish_call(call, status=ModelCall.Status.FAILED, response_body=self.provider(response)[2],
+                    http_status=200, error_type="ValueError", error_message=OLD_ERROR)
+        ids = recover_failed_component_call(call.pk)
+        self.assertEqual(len(ids), 1)
+        self.assertEqual(recover_failed_component_call(call.pk), ids)
+        self.assertEqual(ComponentMatch.objects.filter(model_call=call).count(), 1)
+        call.refresh_from_db()
+        self.assertEqual(call.status, ModelCall.Status.FAILED)
+        listed = self.client.get(f"/api/uploads/{self.upload.pk}/component-candidates/")
+        self.assertEqual(listed.data["items"][0]["id"], ids[0])
+        approval = self.client.post(
+            f"/api/uploads/{self.upload.pk}/component-drafts/approval/",
+            {"candidate_id": ids[0]}, format="json", HTTP_X_CSRFTOKEN=self.token,
+        )
+        self.assertEqual(approval.status_code, 200)

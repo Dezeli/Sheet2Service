@@ -36,9 +36,9 @@ class ComponentPlanningTests(TestCase):
             validate_decision(plan(["account.login"], "reuse"))
         with self.assertRaises(ValueError):
             validate_decision(plan(["catalog.list"], "create", blocker="no_related_component"))
-        with self.assertRaises(ValueError):
-            validate_decision(plan(["catalog.list", "account.login"], "create",
-                                   blocker="no_related_component"))
+        self.assertEqual(validate_decision(plan(["catalog.list", "account.login"], "create",
+                                                blocker="no_related_component"))[0]["match"]
+                         ["missing_capabilities"], ["account.login"])
         self.assertEqual(validate_decision(plan(["catalog.list", "account.login"], "create",
                                                 blocker="incompatible_contract"))[0]["match"]["outcome"], "gap")
         with self.assertRaises(ValueError):
@@ -49,6 +49,16 @@ class ComponentPlanningTests(TestCase):
         with self.assertRaises(ValueError):
             validate_decision(plan(["account.login"], "extend", baseComponent="catalog-browser-v1",
                                    blocker="missing_behavior"))
+
+    def test_reservation_gap_can_reuse_submission_parts_without_claiming_reservation_support(self):
+        plan = {"surface": "user", "knownCapabilities": ["reservation.time_slot", "reservation.capacity",
+                                                       "submission.create", "submission.transition"],
+                "newRequirement": "", "decision": "create", "baseComponent": "none",
+                "blocker": "no_related_component", "reason": "신청 부품에는 시간대와 정원 관리가 없음", "question": ""}
+        result = validate_decision({"plans": [plan]})[0]["match"]
+        self.assertEqual(result["outcome"], "gap")
+        self.assertEqual(result["missing_capabilities"], ["reservation.capacity", "reservation.time_slot"])
+        self.assertEqual(set(result["selected_keys"]), {"submission-form-v1", "submission-status-v1"})
 
     def test_invalid_shape_and_unlisted_capability_are_rejected(self):
         item = {"surface": "platform", "knownCapabilities": ["account.login"], "newRequirement": "",

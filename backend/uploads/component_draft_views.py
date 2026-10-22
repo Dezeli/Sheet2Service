@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from .call_records import finish_call, start_call
 from .claude import _extract_text, _post_message
 from .component_drafts import draft_request_body, validate_component_draft
+from .component_recovery import revalidate_failed_component_call
 from .inference import InferenceError
 from .models import ComponentCandidate, ComponentDraft, ComponentMatch, ModelCall
 from .service_blueprint import _parse_json
@@ -27,17 +28,22 @@ def _candidate(upload, value):
         raise ValidationError({"detail": "부품 후보 번호가 올바르지 않습니다."}) from exc
     candidate = get_object_or_404(ComponentCandidate, pk=candidate_id)
     match = ComponentMatch.objects.filter(
-        upload=upload, candidate=candidate, model_call__status=ModelCall.Status.SUCCEEDED
+        upload=upload, candidate=candidate, model_call__isnull=False
     ).select_related("model_call").first()
     if match is None:
         raise Http404
-    result = match.model_call.parsed_result or {}
-    for item in result.get("candidates", []):
-        if item.get("id") == candidate.pk:
-            try:
-                return candidate, result["plans"][item["plan_index"]]
-            except (KeyError, IndexError, TypeError):
-                break
+    call = match.model_call
+    result = call.parsed_result if call.status == ModelCall.Status.SUCCEEDED \
+        else revalidate_failed_component_call(call)
+    for reference in result.get("candidates", []):
+        if reference.get("id") == candidate.pk:
+            index = reference.get("plan_index")
+            if isinstance(index, int) and 0 <= index < len(result.get("plans", [])):
+                return candidate, result["plans"][index]
+    for plan in result.get("plans", []):
+        required = sorted(plan["knownCapabilities"] + (["request.unclassified"] if plan["newRequirement"].strip() else []))
+        if plan["surface"] == match.surface and required == match.requested_capabilities:
+            return candidate, plan
     raise Http404
 
 
@@ -49,6 +55,17 @@ def _response(draft, *, already_generated):
     return {"id": str(draft.pk), "candidate_id": draft.candidate_id,
             "status": draft.status, "content": draft.content,
             "already_generated": already_generated}
+
+
+class ComponentCandidatesView(SessionView):
+    def get(self, request, pk):
+        upload = owned(request, pk)
+        matches = ComponentMatch.objects.filter(upload=upload, candidate__isnull=False)
+        ids = sorted(set(matches.values_list("candidate_id", flat=True)))
+        candidates = ComponentCandidate.objects.filter(pk__in=ids).order_by("pk")
+        return Response({"items": [{"id": item.pk, "surface": item.surface,
+                                    "capabilities": item.capabilities, "decision": item.decision}
+                                   for item in candidates]})
 
 
 class ComponentDraftApprovalView(SessionView):
