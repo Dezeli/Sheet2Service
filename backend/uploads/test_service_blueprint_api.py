@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework.test import APIClient, APITestCase
 
-from .models import BlueprintSubmission, ComponentMatch, ModelCall, Upload
+from .models import BlueprintSubmission, ComponentCandidate, ComponentMatch, ModelCall, Upload
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "claude_api_settings" / "service_blueprint_response.example.json"
@@ -114,6 +114,7 @@ class BlueprintApiTests(APITestCase):
         self.assertEqual(unsupported.status_code, 200)
         self.assertEqual(unsupported.data["status"], "unsupported")
         self.assertEqual(unsupported.data["plans"][0]["decision"], "create")
+        self.assertEqual(ComponentCandidate.objects.get().new_requirement, "재고 수량 추적")
         invalid = copy.deepcopy(self.blueprint)
         invalid["catalog"]["titleColumn"] = 99
         post_message.return_value = self.provider({"status": "applied", "message": "수정했습니다.",
@@ -133,6 +134,7 @@ class BlueprintApiTests(APITestCase):
         self.upload.refresh_from_db()
         self.assertEqual(self.upload.service_blueprint["catalog"]["filterColumns"], [2, 3])
         self.assertEqual(ComponentMatch.objects.filter(upload=self.upload).count(), 2)
+        self.assertEqual(ComponentCandidate.objects.count(), 1)
 
     @patch("uploads.service_blueprint_views._post_message")
     def test_revision_rejects_unimplemented_feature_claimed_as_applied(self, post_message):
@@ -153,3 +155,4 @@ class BlueprintApiTests(APITestCase):
         self.upload.refresh_from_db()
         self.assertEqual(self.upload.service_blueprint, self.blueprint)
         self.assertEqual(ComponentMatch.objects.count(), 0)
+        self.assertEqual(ComponentCandidate.objects.count(), 0)

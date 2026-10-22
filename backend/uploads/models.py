@@ -119,6 +119,35 @@ class ComponentMatch(models.Model):
         ordering = ["-created_at", "-id"]
 
 
+class ComponentCandidate(models.Model):
+    """Unimplemented requirement grouped for later generation and verification."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        IN_PROGRESS = "in_progress", "In progress"
+        RESOLVED = "resolved", "Resolved"
+        DISMISSED = "dismissed", "Dismissed"
+
+    signature = models.CharField(max_length=64, unique=True)
+    surface = models.CharField(max_length=16)
+    capabilities = models.JSONField(default=list)
+    new_requirement = models.CharField(max_length=300, blank=True)
+    decision = models.CharField(max_length=8)
+    base_component = models.ForeignKey(ComponentVersion, null=True, blank=True,
+                                       on_delete=models.PROTECT, related_name="extension_candidates")
+    blocker = models.CharField(max_length=32)
+    reason = models.CharField(max_length=500)
+    last_match = models.ForeignKey(ComponentMatch, null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name="candidates")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    seen_count = models.PositiveIntegerField(default=1)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_seen_at", "signature"]
+
+
 class FieldChoice(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="field_choices")

@@ -16,6 +16,7 @@ from rest_framework.response import Response
 
 from .call_records import finish_call, start_call
 from .claude import _extract_text, _post_message
+from .component_candidates import record_component_candidate
 from .component_matching import record_component_match
 from .component_planning import parse_planned_revision
 from .inference import InferenceError
@@ -51,7 +52,9 @@ def _run_model(upload, body, *, revision, approval_note):
             for plan in result["plans"]:
                 if plan["decision"] != "needs_input":
                     required = plan["knownCapabilities"] + (["request.unclassified"] if plan["newRequirement"].strip() else [])
-                    record_component_match(plan["surface"], required, upload=upload)
+                    match, _ = record_component_match(plan["surface"], required, upload=upload)
+                    if result["status"] == "unsupported" and plan["decision"] in ("extend", "create"):
+                        record_component_candidate(plan, match)
         finish_call(call, status=ModelCall.Status.SUCCEEDED, response_body=response_text,
                     http_status=http_status, provider_request_id=headers.get("request-id", ""),
                     parsed_result=result, usage=usage)

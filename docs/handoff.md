@@ -1,5 +1,12 @@
 # 작업 인수인계
 
+## 2026-10-22 미구현 부품 후보 저장 다섯 번째 증분 (미커밋)
+
+- 네 번째 증분은 사용자 승인 후 `f4976aa feat: integrate component decisions into service revisions`로 커밋했다. push는 하지 않았다.
+- `ComponentCandidate`와 0016 마이그레이션을 추가했다. 수정 응답이 `unsupported`이고 검증된 `extend/create` 계획일 때만 후보를 기록한다. 동일한 화면·기능·요구·기준 부품·차단 이유는 하나의 후보로 모으고 발생 횟수와 최근 `ComponentMatch`를 갱신한다. 기준 부품은 FK로 계보와 연결한다.
+- 후보는 `ComponentVersion`의 실행 가능 등록부와 분리되어 있으며 코드 생성·Claude 추가 호출·공용 승격을 하지 않는다. 표현이 다른 유사 요구의 의미상 중복 판별과 격리 생성/검증은 다음 단계에 남아 있다.
+- 0016 마이그레이션을 개발 DB에 적용했다. 관련 오프라인 검사 18개, 마이그레이션 일치 검사와 `git diff --check`가 통과했다. 브라우저 검증과 실제 Claude 호출은 하지 않았다.
+
 ## 2026-10-22 부품 판단을 서비스 수정 요청에 연결한 네 번째 증분 (미커밋)
 
 - 세 번째 부품 판단 계약은 사용자 승인 후 `22c2e96 feat: define validated component decision contract`로 커밋했다. push는 하지 않았다.
