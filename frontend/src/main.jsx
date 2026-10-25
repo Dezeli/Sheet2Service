@@ -8,6 +8,8 @@ import ServiceFeatures from './workflow/ServiceFeatures';
 import './theme.css';
 import UploadDropzone from './upload/UploadDropzone';
 import GenerateDialog from './upload/GenerateDialog';
+import UnderstandingPage from './understanding/UnderstandingPage';
+import BlueprintService from './blueprint/BlueprintService';
 import { csvFile } from './upload/files';
 import SiteFooter from './components/SiteFooter';
 import SectionIcon from './components/SectionIcon';
@@ -119,6 +121,7 @@ function App() {
   const [upload, setUpload] = useState(null);
   const [csrfToken, setCsrfToken] = useState('');
   const [callSummary, setCallSummary] = useState(null);
+  const [understandSummary, setUnderstandSummary] = useState(null);
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -131,7 +134,7 @@ function App() {
     catch (caught) { setError(caught.message); return; }
     submitting.current = true;
     setFile(selected); setConfirmOpen(true);
-    setBusy(true); setUpload(null); setCallSummary(null);
+    setBusy(true); setUpload(null); setCallSummary(null); setUnderstandSummary(null);
     try {
       const { csrf_token } = await api('/api/session/');
       setCsrfToken(csrf_token);
@@ -139,8 +142,10 @@ function App() {
       body.append('file', selected); body.append('encoding', 'auto');
       const uploaded = await api('/api/uploads/', { method: 'POST', body, headers: { 'X-CSRFToken': csrf_token } });
       setUpload(uploaded);
-      const summary = await api(`/api/uploads/${uploaded.id}/inference/`);
-      setCallSummary(summary);
+      // Understanding comes first (docs/sheet-understanding.md); the template path stays as a fallback.
+      const [understanding, summary] = await Promise.all([
+        api(`/api/uploads/${uploaded.id}/understanding/approval/`), api(`/api/uploads/${uploaded.id}/inference/`)]);
+      setUnderstandSummary(understanding); setCallSummary(summary);
     } catch (err) {
       setError(err instanceof TypeError ? '서버에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.' : err.message);
     } finally { submitting.current = false; setBusy(false); }
@@ -149,9 +154,28 @@ function App() {
   async function retrySummary() {
     if (!upload || busy || submitting.current) return;
     submitting.current = true; setBusy(true); setError('');
-    try { setCallSummary(await api(`/api/uploads/${upload.id}/inference/`)); }
+    try {
+      setUnderstandSummary(await api(`/api/uploads/${upload.id}/understanding/approval/`));
+      setCallSummary(await api(`/api/uploads/${upload.id}/inference/`));
+    }
     catch (caught) { setError(caught.message); }
     finally { submitting.current = false; setBusy(false); }
+  }
+
+  async function understand() {
+    if (!upload || !understandSummary || busy || submitting.current) return;
+    submitting.current = true; setBusy(true); setError('');
+    try {
+      await api(`/api/uploads/${upload.id}/understanding/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ approved: true, request_fingerprint: understandSummary.request_fingerprint,
+          approval_note: `생성 확인 모달의 시트 이해하기 버튼으로 ${understandSummary.model} 1회 호출 승인` }),
+      });
+      window.location.assign(`/${upload.id}/understanding`);
+    } catch (err) {
+      setError(err instanceof TypeError ? '서버에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.' : err.message);
+    } finally { submitting.current = false; setBusy(false); }
   }
 
   async function generate() {
@@ -172,7 +196,7 @@ function App() {
   function cancelUpload() {
     if (busy || submitting.current) return;
     setConfirmOpen(false); setFile(null); setUpload(null);
-    setCallSummary(null); setError('');
+    setCallSummary(null); setUnderstandSummary(null); setError('');
   }
 
   return (
@@ -194,8 +218,8 @@ function App() {
       <p className="upload-policy">CSV를 업로드하면 서비스 약관에 동의한 것으로 간주합니다. Sheet2Service가 개인 데이터를 처리하는 방법에 대한 자세한 정보는 개인정보 보호정책에서 확인하세요.</p>
       </div>
       </div>
-      {confirmOpen && file && <GenerateDialog file={file} summary={callSummary} busy={busy} error={error}
-        canRetry={!!upload && !callSummary} onRetry={retrySummary} onConfirm={generate} onClose={cancelUpload} />}
+      {confirmOpen && file && <GenerateDialog file={file} summary={callSummary} understandSummary={understandSummary} busy={busy} error={error}
+        canRetry={!!upload && !callSummary} onRetry={retrySummary} onUnderstand={understand} onLegacy={generate} onClose={cancelUpload} />}
       {!confirmOpen && error && <div className="error" role="alert">{error}</div>}
     </main>
   );
@@ -269,7 +293,7 @@ function ServicePage({ uploadId, page }) {
       <div className="service-topline"><a className="service-brand" href="/">Sheet2Service</a>
       <nav className="service-switch" aria-label="서비스 화면 이동">
         <a href={`/${uploadId}/DashBoard`} aria-current={page === 'DashBoard' ? 'page' : undefined}>대시보드</a>
-        {service?.workflow_config && <a href={`/${uploadId}/User`} aria-current={page === 'User' ? 'page' : undefined}>사용자</a>}
+        {(service?.workflow_config || service?.blueprint) && <a href={`/${uploadId}/User`} aria-current={page === 'User' ? 'page' : undefined}>사용자</a>}
         <a href={`/${uploadId}/Admin`} aria-current={page === 'Admin' ? 'page' : undefined}>관리자</a>
       </nav>
       </div>
@@ -282,7 +306,8 @@ function ServicePage({ uploadId, page }) {
     {service?.workflow_required && !service.workflow_config && <p className="notice">
       사용할 기능을 먼저 선택해 주세요.
     </p>}
-    {service && (!service.workflow_required || service.workflow_config) &&
+    {service?.blueprint ? <BlueprintService uploadId={uploadId} page={page} service={service} />
+      : service && (!service.workflow_required || service.workflow_config) &&
       <ServiceFeatures uploadId={uploadId} page={page} service={service}
         requestMetrics={<RequestMetrics uploadId={uploadId} enabled />} />}
   </main>;
@@ -318,9 +343,11 @@ function RequestMetrics({ uploadId, enabled }) {
 
 const path = window.location.pathname.replace(/\/+$/, '');
 const serviceMatch = path.match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(User|DashBoard|Admin)$/i);
+const understandingMatch = path.match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/understanding$/i);
 createRoot(document.getElementById('root')).render(<React.StrictMode>
   {path === '/templates' ? <TemplateExamples />
     : path === '/select' ? <SelectPage />
+    : understandingMatch ? <UnderstandingPage uploadId={understandingMatch[1]} />
     : serviceMatch ? <ServicePage uploadId={serviceMatch[1]} page={serviceMatch[2].toLowerCase() === 'admin' ? 'Admin'
       : serviceMatch[2].toLowerCase() === 'user' ? 'User' : 'DashBoard'} />
       : <App />}

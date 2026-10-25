@@ -1,0 +1,35 @@
+.blueprint-service { display: grid; gap: 1.25rem; }
+.service-page .blueprint-search { margin: 18px 0 0; }
+.blueprint-search .list-filter-row:has(> .list-filter-actions:first-child) { display: flex; justify-content: flex-end; }
+.blueprint-workflow-history + .blueprint-workflow-history { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.blueprint-workflow-history > h3 { margin: 0 0 12px; }
+.blueprint-request-list li { display: flex; flex-direction: column; gap: 10px; }
+.blueprint-request-list li > div:first-child > .muted { display: block; margin-top: 4px; font-size: .75rem; }
+.blueprint-request-list dl { display: grid; gap: 4px; margin: 10px 0 0; }
+.blueprint-request-list dl div { display: flex; gap: 8px; min-width: 0; }
+.blueprint-request-list dt { flex-shrink: 0; color: #657386; font-size: .75rem; }
+.blueprint-request-list dd { margin: 0; font-size: .8rem; overflow-wrap: anywhere; }
+.blueprint-management .request-subject-cell { align-items: flex-start; flex-direction: column; }
+.blueprint-table-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.blueprint-table-actions button { min-height: 32px; padding: 5px 9px; font-size: .75rem; }
+.service-page .blueprint-management { margin: 0; }
+.blueprint-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.blueprint-chart-grid ul { list-style: none; padding: 0; }
+.blueprint-chart-grid li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px solid #eee; }
+.part-slot { margin-top: 10px; }
+.part-error { font-size: .8rem; }
+
+/* Row workflows: states live in the sheet's own columns. */
+.row-flow-badges { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 10px; vertical-align: middle; }
+.service-page .service-badge.row-flow-done { background: var(--teal-light); color: var(--teal-dark); }
+.service-page .service-badge.row-flow-cancelled { background: #fff1f1; color: #9b3b3b; }
+.service-page .service-badge.row-flow-start { background: var(--cream); color: #8a5a00; }
+.service-page .service-badge.row-flow-waiting { background: #eef2f6; color: #3e5566; }
+.row-flow-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row-flow-controls select { font: inherit; font-size: .85rem; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.row-flow-explain { margin: -6px 0 12px; }
+.row-flow-history { border: none; background: none; padding: 0; font-size: .78rem; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.row-flow-table td small { display: block; }
+.row-flow-history-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.row-flow-history-list li { display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.row-flow-history-list time { font-size: .78rem; color: var(--muted); }
