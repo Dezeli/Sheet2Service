@@ -1,0 +1,58 @@
+{
+  "kind": "roster",
+  "columnRoles": [
+    "identifier",
+    "actor_name",
+    "contact",
+    "contact",
+    "date_created",
+    "category|status",
+    "flag",
+    "date_event",
+    "amount",
+    "flag",
+    "date_closed",
+    "date_updated",
+    "note"
+  ],
+  "processes": [
+    {
+      "title": "회비 납부",
+      "basis": "flag_and_dates",
+      "columns": [
+        7,
+        8,
+        9
+      ],
+      "states": [
+        "N",
+        "Y"
+      ],
+      "transitions": [
+        [
+          "N",
+          "Y"
+        ]
+      ]
+    },
+    {
+      "title": "탈퇴",
+      "basis": "flag_and_dates",
+      "columns": [
+        10,
+        11
+      ],
+      "states": [
+        "N",
+        "Y"
+      ],
+      "transitions": [
+        [
+          "N",
+          "Y"
+        ]
+      ]
+    }
+  ],
+  "rules": []
+}

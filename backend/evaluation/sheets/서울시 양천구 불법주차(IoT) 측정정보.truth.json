@@ -1,0 +1,15 @@
+{
+  "kind": "ledger",
+  "source": "공공데이터 (Samples/, 저장소에 포함하지 않음)",
+  "columnRoles": [
+    "location|category",
+    "reference_code",
+    "number",
+    "category",
+    "reference_code|identifier",
+    "flag",
+    "date_event"
+  ],
+  "processes": [],
+  "rules": []
+}

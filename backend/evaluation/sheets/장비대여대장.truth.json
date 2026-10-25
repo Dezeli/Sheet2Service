@@ -1,0 +1,77 @@
+{
+  "kind": "register",
+  "columnRoles": [
+    "identifier",
+    "title",
+    "reference_code",
+    "actor_name",
+    "category",
+    "date_created",
+    "date_updated",
+    "date_event",
+    "date_due",
+    "date_closed",
+    "amount",
+    "amount",
+    "derived",
+    "flag",
+    "date_event",
+    "owner",
+    "note"
+  ],
+  "processes": [
+    {
+      "title": "장비 대여",
+      "basis": "milestone_dates",
+      "columns": [
+        6,
+        7,
+        8,
+        10
+      ],
+      "states": [
+        "신청",
+        "승인",
+        "대여중",
+        "반납"
+      ],
+      "transitions": [
+        [
+          "신청",
+          "승인"
+        ],
+        [
+          "승인",
+          "대여중"
+        ],
+        [
+          "대여중",
+          "반납"
+        ]
+      ]
+    },
+    {
+      "title": "반납 점검",
+      "basis": "flag_and_dates",
+      "columns": [
+        14,
+        15,
+        16
+      ],
+      "states": [
+        "",
+        "O"
+      ],
+      "transitions": [
+        [
+          "",
+          "O"
+        ]
+      ],
+      "after": 0
+    }
+  ],
+  "rules": [
+    "환급액 = 보증금 - 공제액"
+  ]
+}

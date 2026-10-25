@@ -1,0 +1,7 @@
+{
+  "kind": "catalog",
+  "source": "공공데이터 (Samples/, 저장소에 포함하지 않음)",
+  "columnRoles": ["identifier", "title", "url", "owner", "date_created"],
+  "processes": [],
+  "rules": []
+}

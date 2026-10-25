@@ -59,3 +59,15 @@ def finish_call(call, *, status, response_body="", http_status=None,
         raise ValueError("이미 완료된 호출 기록은 덮어쓰지 않습니다.")
     call.refresh_from_db()
     return call
+
+
+def record_failure(call, exc, *, response_body="", http_status=None, provider_request_id="", usage=None,
+                   status=ModelCall.Status.FAILED):
+    """Keep the paid response text whatever went wrong afterwards; never mask the original error."""
+    try:
+        if ModelCall.objects.filter(pk=call.pk, status=ModelCall.Status.STARTED).exists():
+            finish_call(call, status=status, response_body=response_body, http_status=http_status,
+                        provider_request_id=provider_request_id, usage=usage,
+                        error_type=type(exc).__name__, error_message=str(exc)[:2000])
+    except Exception:  # noqa: BLE001 - the caller re-raises the original exception.
+        pass

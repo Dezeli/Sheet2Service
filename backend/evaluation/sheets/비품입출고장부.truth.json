@@ -1,0 +1,57 @@
+{
+  "kind": "ledger",
+  "columnRoles": [
+    "date_created|date_event",
+    "reference_code",
+    "title",
+    "category",
+    "category",
+    "quantity",
+    "amount",
+    "derived",
+    "quantity|derived",
+    "owner",
+    "flag",
+    "date_event",
+    "date_due",
+    "note"
+  ],
+  "processes": [
+    {
+      "title": "입출고 기록",
+      "basis": "amount_balance",
+      "columns": [
+        5,
+        6,
+        9
+      ],
+      "states": [
+        "입고",
+        "출고"
+      ],
+      "transitions": []
+    },
+    {
+      "title": "재고 발주",
+      "basis": "flag_and_dates",
+      "columns": [
+        11,
+        12,
+        13
+      ],
+      "states": [
+        "N",
+        "Y"
+      ],
+      "transitions": [
+        [
+          "N",
+          "Y"
+        ]
+      ]
+    }
+  ],
+  "rules": [
+    "금액 = 수량 × 단가"
+  ]
+}

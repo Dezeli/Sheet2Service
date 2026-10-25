@@ -9,12 +9,22 @@ from .reservation_views import ReservationSlotsView, ReservationSlotView, Reserv
 from .notice_views import NoticesView, NoticeView
 from .rental_views import RentalStocksView, RentalStockView, RentalsView, RentalView
 from .quote_views import QuoteRequestsView, QuoteRequestView
+from .sheet_understanding_views import UnderstandingApprovalView, UnderstandingView
+from .row_workflow_views import RowCreateView, RowHistoryView, RowTransitionView, UnderstandingApplyView
+from .service_blueprint_views import BlueprintRowsView
 
 urlpatterns = [
     path("session/", BootstrapView.as_view()),
     path("uploads/", UploadView.as_view()),
     path("uploads/<uuid:pk>/", DetailView.as_view()),
     path("uploads/<uuid:pk>/service/", ServiceView.as_view()),
+    path("uploads/<uuid:pk>/understanding/approval/", UnderstandingApprovalView.as_view()),
+    path("uploads/<uuid:pk>/understanding/", UnderstandingView.as_view()),
+    path("uploads/<uuid:pk>/understanding/apply/", UnderstandingApplyView.as_view()),
+    path("uploads/<uuid:pk>/blueprint/rows/", BlueprintRowsView.as_view()),
+    path("uploads/<uuid:pk>/blueprint/rows/mine/", RowCreateView.as_view()),
+    path("uploads/<uuid:pk>/blueprint/rows/<uuid:row_id>/transition/", RowTransitionView.as_view()),
+    path("uploads/<uuid:pk>/blueprint/rows/<uuid:row_id>/history/", RowHistoryView.as_view()),
     path("uploads/<uuid:pk>/workflow/", WorkflowView.as_view()),
     path("uploads/<uuid:pk>/workflow/custom-preview/", CustomFlowPreviewView.as_view()),
     path("uploads/<uuid:pk>/workflow/custom-run/", CustomFlowRunView.as_view()),

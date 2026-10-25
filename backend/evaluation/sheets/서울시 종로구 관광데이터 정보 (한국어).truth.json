@@ -1,0 +1,8 @@
+{
+  "kind": "catalog",
+  "source": "공공데이터 (Samples/, 저장소에 포함하지 않음)",
+  "columnRoles": ["identifier", "category", "title", "location", "location", "location", "location", "contact", "url",
+                  "flag", "coordinate", "coordinate"],
+  "processes": [],
+  "rules": []
+}

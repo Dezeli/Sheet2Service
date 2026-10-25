@@ -1,0 +1,9 @@
+{
+  "kind": "catalog",
+  "source": "공공데이터 (Samples/, 저장소에 포함하지 않음). 상태 컬럼이 있지만 외부 포털의 스냅샷이라 올린 사람이 운영하지 않는다.",
+  "columnRoles": ["category", "identifier", "category", "category", "status", "title", "category", "location", "category",
+                  "url", "coordinate", "coordinate", "date_event", "date_closed", "date_event", "date_due", "location",
+                  "image", "note", "contact", "time", "time", "category", "duration"],
+  "processes": [],
+  "rules": []
+}

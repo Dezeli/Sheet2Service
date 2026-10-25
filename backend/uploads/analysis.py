@@ -7,6 +7,8 @@ import re
 from collections import Counter
 from datetime import date, datetime, time
 
+from .operational_signals import compute_signals
+
 MAX_BYTES = 10 * 1024 * 1024
 MAX_ROWS = 50_000
 MAX_COLUMNS = 200
@@ -256,4 +258,6 @@ def profile(rows, *, sample_seed=0):
         "preview": [report_row(index) for index in range(min(20, len(records)))],
         "preview_limit": 20,
         "inference_samples": [report_row(index) for index in sample_indexes],
+        # Joint-column facts for the understanding prompt; see operational_signals.py.
+        "signals": compute_signals(records, width),
     }

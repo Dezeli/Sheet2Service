@@ -18,6 +18,11 @@ class Upload(models.Model):
     analysis = models.JSONField(null=True)
     managed = models.BooleanField(default=False)
     workflow_config = models.JSONField(null=True, blank=True)
+    # The service derived from the sheet understanding (docs/sheet-understanding.md).
+    service_blueprint = models.JSONField(null=True, blank=True)
+    understanding = models.JSONField(null=True, blank=True)
+    # The user's corrections to the model's reading, kept apart from it so both can be scored.
+    understanding_overrides = models.JSONField(default=dict, blank=True)
     field_labels = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -27,6 +32,8 @@ class ManagedRow(models.Model):
     upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="managed_rows")
     row_number = models.PositiveIntegerField()
     values = models.JSONField()
+    # Set when a requester adds the row through the service; imported rows leave it empty.
+    created_by_session = models.CharField(max_length=40, blank=True, default="", db_index=True)
 
     class Meta:
         ordering = ["row_number"]
@@ -241,3 +248,20 @@ class ModelCall(models.Model):
 
     class Meta:
         ordering = ["-started_at"]
+
+
+class RowHistory(models.Model):
+    """One row-workflow step applied to a managed row: what changed, by which role, when."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    row = models.ForeignKey(ManagedRow, on_delete=models.CASCADE, related_name="history")
+    flow_id = models.CharField(max_length=32)
+    from_state = models.CharField(max_length=48, blank=True)
+    to_state = models.CharField(max_length=48)
+    actor = models.CharField(max_length=16)
+    session_key = models.CharField(max_length=40, blank=True)
+    changes = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]

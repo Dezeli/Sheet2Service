@@ -1,0 +1,19 @@
+{
+  "kind": "catalog|reference",
+  "source": "공공데이터 (Samples/, 저장소에 포함하지 않음)",
+  "columnRoles": [
+    "reference_code|category",
+    "category",
+    "identifier",
+    "title",
+    "coordinate",
+    "coordinate",
+    "reference_code",
+    "location",
+    "reference_code",
+    "location",
+    "number"
+  ],
+  "processes": [],
+  "rules": []
+}

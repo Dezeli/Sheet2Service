@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "kind": "register",
+  "subject": "주민 민원",
+  "purpose": "주민 민원을 접수해 담당 부서에 배정하고 처리한 뒤 민원인에게 회신하기 위한 대장",
+  "actors": [
+    {
+      "id": "a1",
+      "label": "접수 담당자",
+      "kind": "handler"
+    },
+    {
+      "id": "a2",
+      "label": "처리 부서",
+      "kind": "handler"
+    },
+    {
+      "id": "a3",
+      "label": "민원인",
+      "kind": "requester"
+    }
+  ],
+  "columnRoles": [
+    "identifier",
+    "date_created",
+    "actor_name",
+    "contact",
+    "category",
+    "note",
+    "status",
+    "owner",
+    "date_due",
+    "date_closed",
+    "result",
+    "flag",
+    "date_event",
+    "result"
+  ],
+  "columnConfidence": [
+    "high",
+    "high",
+    "high",
+    "high",
+    "medium",
+    "high",
+    "high",
+    "high",
+    "medium",
+    "high",
+    "medium",
+    "high",
+    "high",
+    "medium"
+  ],
+  "columnEvidence": [
+    "M-2026-0001 형식, 모두 고유",
+    "",
+    "",
+    "",
+    "값 7종",
+    "",
+    "접수·배정·처리중·완료·반려 5종",
+    "",
+    "접수일+7일인 행이 대부분",
+    "상태가 완료·반려인 행에만 값 있음",
+    "",
+    "Y/N",
+    "회신여부 Y인 행에만 값 있음",
+    ""
+  ],
+  "processes": [
+    {
+      "id": "p1",
+      "title": "민원 처리",
+      "basis": "status_column",
+      "columns": [
+        7,
+        8,
+        10,
+        11
+      ],
+      "states": [
+        {
+          "value": "접수",
+          "kind": "start"
+        },
+        {
+          "value": "배정",
+          "kind": "active"
+        },
+        {
+          "value": "처리중",
+          "kind": "active"
+        },
+        {
+          "value": "완료",
+          "kind": "done"
+        },
+        {
+          "value": "반려",
+          "kind": "cancelled"
+        }
+      ],
+      "transitions": [
+        "접수>배정:a1",
+        "접수>반려:a1",
+        "배정>처리중:a2",
+        "처리중>완료:a2"
+      ],
+      "evidence": "처리일은 완료·반려 행에만 있고 담당자는 접수 상태 행에서 비어 있음",
+      "after": "",
+      "confidence": "high"
+    },
+    {
+      "id": "p2",
+      "title": "민원인 회신",
+      "basis": "flag_and_dates",
+      "columns": [
+        12,
+        13,
+        14
+      ],
+      "states": [
+        {
+          "value": "회신 전",
+          "kind": "waiting"
+        },
+        {
+          "value": "회신 완료",
+          "kind": "done"
+        }
+      ],
+      "transitions": [
+        "회신 전>회신 완료:a1"
+      ],
+      "evidence": "회신여부 Y는 처리 완료 행에서만 나타나고 회신일·회신내용이 함께 채워짐",
+      "after": "p1",
+      "confidence": "high"
+    }
+  ],
+  "lifecycle": {
+    "rowCreated": "민원이 접수될 때 접수 담당자가 한 행을 추가한다",
+    "rowUpdated": "배정 시 담당자, 처리 시 상태·처리일·결과, 회신 시 회신여부·회신일·회신내용을 채운다",
+    "rowClosed": "회신 완료"
+  },
+  "questions": [
+    {
+      "about": "column",
+      "column": 9,
+      "text": "처리기한은 접수일 기준 7일 규칙인가요?"
+    }
+  ]
+}

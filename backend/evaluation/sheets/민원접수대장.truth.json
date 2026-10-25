@@ -1,0 +1,79 @@
+{
+  "kind": "register",
+  "columnRoles": [
+    "identifier",
+    "date_created",
+    "actor_name",
+    "contact",
+    "category",
+    "note|title",
+    "status",
+    "owner",
+    "date_due",
+    "date_closed",
+    "result",
+    "flag",
+    "date_event|date_closed",
+    "result"
+  ],
+  "processes": [
+    {
+      "title": "민원 처리",
+      "basis": "status_column",
+      "columns": [
+        7,
+        8,
+        10,
+        11
+      ],
+      "states": [
+        "접수",
+        "배정",
+        "처리중",
+        "완료",
+        "반려"
+      ],
+      "transitions": [
+        [
+          "접수",
+          "배정"
+        ],
+        [
+          "접수",
+          "반려"
+        ],
+        [
+          "배정",
+          "처리중"
+        ],
+        [
+          "처리중",
+          "완료"
+        ]
+      ]
+    },
+    {
+      "title": "민원인 회신",
+      "basis": "flag_and_dates",
+      "columns": [
+        12,
+        13,
+        14
+      ],
+      "states": [
+        "N",
+        "Y"
+      ],
+      "transitions": [
+        [
+          "N",
+          "Y"
+        ]
+      ],
+      "after": 0
+    }
+  ],
+  "rules": [
+    "처리기한 = 접수일 + 7일"
+  ]
+}

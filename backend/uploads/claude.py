@@ -16,7 +16,7 @@ ANTHROPIC_VERSION = "2023-06-01"
 STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_MAX_TOKENS = 8000
-TIMEOUT_SECONDS = 60
+TIMEOUT_SECONDS = 180  # understanding calls on wide sheets take over a minute
 
 
 def inference_request_body(report):
