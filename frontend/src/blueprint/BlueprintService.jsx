@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import AdminPreview from '../admin/AdminPreview';
 import ServiceDialog from '../components/ServiceDialog';
 import { FlowBadges, RowCreatePanel, RowFlowAdmin } from './RowFlows';
+import { ApplicationDialog, SubmissionList, applicationGate, useSubmissions } from './Submissions';
 import '../user/user.css';
 import '../inquiry/inquiry.css';
 import './blueprint.css';
@@ -53,6 +54,8 @@ export default function BlueprintService({ uploadId, page, service }) {
   const columns = report.columns;
   const base = `/api/uploads/${uploadId}/blueprint/`;
   const rowFlows = blueprint.rowWorkflows || [];
+  const [editor, setEditor] = useState(null);
+  const submissions = useSubmissions(uploadId, csrf, blueprint, page === 'Admin' ? 'admin' : 'owner');
 
   async function loadRows(nextPage = 1, nextCriteria = criteria) {
     const params = new URLSearchParams({ page: String(nextPage) });
@@ -122,7 +125,11 @@ export default function BlueprintService({ uploadId, page, service }) {
           .slice(0, 3).map((number) => <div key={number}><dt>{label(columns, number)}</dt>
             <dd title={String(row.values[number - 1])}>{renderValue(row.values[number - 1], blueprint.catalog, number)}</dd></div>)}</dl></div>
         <div className="admin-row-actions"><button type="button" className="service-back-button"
-          onClick={() => setDetail(row)}>상세 보기</button></div>
+          onClick={() => setDetail(row)}>상세 보기</button>
+          {blueprint.workflows.map((flow) => { const gate = applicationGate(flow, blueprint, row);
+            return <button key={flow.id} type="button" data-intent="primary" disabled={!gate.open || submissions.busy || !csrf}
+              title={gate.reason || undefined} onClick={() => { setEditor({ row, workflow: flow }); submissions.setError(''); }}>
+              {gate.open ? '신청하기' : '신청 불가'}</button>; })}</div>
       </article>)}</div>
       <nav className="service-pagination" aria-label="항목 페이지 이동"><button type="button" disabled={pageNumber <= 1}
         onClick={() => loadRows(pageNumber - 1).catch((caught) => setError(caught.message))}>이전</button>
@@ -130,8 +137,22 @@ export default function BlueprintService({ uploadId, page, service }) {
         <button type="button" disabled={pageNumber * 20 >= rowCount}
           onClick={() => loadRows(pageNumber + 1).catch((caught) => setError(caught.message))}>다음</button></nav>
       </section>
-      {(!!rowFlows.length || blueprint.createForm) && <RowCreatePanel uploadId={uploadId} csrf={csrf} blueprint={blueprint} columns={columns} />}
+      {(blueprint.createForm || rowFlows.some((flow) => flow.transitions.some((step) => step.actor === 'user')))
+        && <RowCreatePanel uploadId={uploadId} csrf={csrf} blueprint={blueprint} columns={columns} />}
+      {!!blueprint.workflows.length && <section className="panel workspace-side"><div className="section-title">
+        <h2>내 신청 현황</h2><button type="button" className="service-back-button" disabled={submissions.busy}
+          onClick={submissions.load}>새로고침</button></div>
+        {submissions.message && <p className="notice" role="status">{submissions.message}</p>}
+        {submissions.error && !editor && <p className="error" role="alert">{submissions.error}</p>}
+        {blueprint.workflows.map((flow) => <div className="blueprint-workflow-history" key={flow.id}>
+          <h3>{flow.title}</h3><SubmissionList items={submissions.items[flow.id] || []} role="owner"
+            onTransition={submissions.transition} busy={submissions.busy} />
+        </div>)}
+      </section>}
     </div>}
+    {page === 'User' && editor && <ApplicationDialog editor={editor} busy={submissions.busy} error={submissions.error}
+      onClose={() => { setEditor(null); submissions.setError(''); }}
+      onSubmit={async (values) => { if (await submissions.create(editor.workflow, editor.row, values)) setEditor(null); }} />}
     {page === 'User' && detail && <ServiceDialog title={String(detail.values[blueprint.catalog.titleColumn - 1] || `항목 ${detail.row_number}`)}
       onClose={() => setDetail(null)}>
       <dl className="catalog-detail">{columns.map((column, index) => <div key={index}
@@ -144,7 +165,8 @@ export default function BlueprintService({ uploadId, page, service }) {
         <nav aria-label="관리 메뉴">
           {[{ id: 'fields', label: '필드 구성' }, { id: 'choices', label: '선택지 관리' },
             { id: 'records', label: '데이터 관리' },
-            ...rowFlows.map((flow) => ({ id: flow.id, label: flow.title }))]
+            ...rowFlows.map((flow) => ({ id: flow.id, label: flow.title })),
+            ...blueprint.workflows.map((flow) => ({ id: flow.id, label: `${flow.title} 내역` }))]
             .map((item) => <button type="button" key={item.id}
               aria-current={adminTab === item.id ? 'page' : undefined}
               onClick={() => setAdminTab(item.id)}>{item.label}</button>)}
@@ -156,8 +178,16 @@ export default function BlueprintService({ uploadId, page, service }) {
             dashboardConfig={{ version: 2, views: [{ template: 'table', columns: blueprint.catalog.visibleColumns }] }}
             workflowConfig={null} titleColumns={[blueprint.catalog.titleColumn]} embedded
             onFieldLabelsChange={setFieldLabels} viewTemplate={adminTab} />
-          : <RowFlowAdmin key={adminTab} uploadId={uploadId} csrf={csrf} blueprint={blueprint} columns={columns}
-            flow={rowFlows.find((flow) => flow.id === adminTab)} />}
+          : rowFlows.some((flow) => flow.id === adminTab)
+            ? <RowFlowAdmin key={adminTab} uploadId={uploadId} csrf={csrf} blueprint={blueprint} columns={columns}
+              flow={rowFlows.find((flow) => flow.id === adminTab)} />
+          : blueprint.workflows.filter((flow) => flow.id === adminTab).map((flow) => <section className="panel blueprint-management" key={flow.id}>
+            <div className="section-title"><h2>{flow.title} 내역</h2>
+              <button type="button" className="service-back-button" disabled={submissions.busy} onClick={submissions.load}>새로고침</button></div>
+            {submissions.message && <p className="notice" role="status">{submissions.message}</p>}
+            {submissions.error && <p className="error" role="alert">{submissions.error}</p>}
+            <SubmissionList items={submissions.items[flow.id] || []} role="admin" onTransition={submissions.transition} busy={submissions.busy} />
+          </section>)}
       </div>
     </div>}
   </div>;

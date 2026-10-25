@@ -37,6 +37,9 @@ class SubmissionDerivationTests(SimpleTestCase):
         derived = derive_blueprint(understanding, report)
         workflow = derived["blueprint"]["workflows"][0]
         self.assertEqual((workflow["title"], workflow["subjectColumn"]), ("체육시설 예약 서비스 신청", 2))
+        long_name = json.loads(json.dumps(understanding))
+        long_name["subject"] = "서울시 공공서비스예약 체육시설 서비스 목록"
+        self.assertEqual(derive_blueprint(long_name, report)["blueprint"]["workflows"][0]["title"], "이용 신청")
         self.assertEqual(workflow["openWhen"], {"flow": "row_1", "kinds": ["active"]})
         self.assertIsNone(derived["createForm"])  # applications are records, not new facilities
         no_requester = json.loads(json.dumps(understanding))

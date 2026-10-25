@@ -176,7 +176,9 @@ def derive_submission_workflow(understanding, report, row_workflows):
         return None
     by_role = _by_role(understanding["columnRoles"])
     subject = (by_role.get("title") or by_role.get("identifier") or [1])[0]
-    workflow = {"id": "flow_1", "title": f'{understanding["subject"] or "항목"} 신청'[:80], "subjectColumn": subject,
+    subject_name = understanding["subject"] or "항목"
+    title = f"{subject_name} 신청" if len(subject_name) <= 16 else "이용 신청"  # keeps buttons and tabs readable
+    workflow = {"id": "flow_1", "title": title, "subjectColumn": subject,
                 "fields": [{"id": "field_1", "label": "신청자 이름", "type": "text", "required": True},
                            {"id": "field_2", "label": "연락처", "type": "text", "required": True},
                            {"id": "field_3", "label": "요청 내용", "type": "text", "required": False}],
