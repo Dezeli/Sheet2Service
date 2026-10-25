@@ -89,9 +89,12 @@ function Derived({ derived, columns }) {
         <dl><div><dt>제목</dt><dd>{name(catalog.titleColumn)}</dd></div>
           <div><dt>목록에 보이는 항목</dt><dd>{list(catalog.visibleColumns.slice(0, 6))}{catalog.visibleColumns.length > 6 && ` 외 ${catalog.visibleColumns.length - 6}개`}</dd></div>
           <div><dt>검색·필터</dt><dd>{list(catalog.searchColumns.slice(0, 4))} / {list(catalog.filterColumns)}</dd></div>
-          {derived.createForm && <div><dt>새 건 접수 폼</dt><dd>{list(derived.createForm.columns)}</dd></div>}</dl></div>
+          {derived.createForm && <div><dt>새 건 접수 폼</dt><dd>{list(derived.createForm.columns)}</dd></div>}
+          {derived.blueprint.workflows.map((flow) => <div key={flow.id}><dt>항목 신청</dt><dd>{flow.title}
+            {flow.openWhen && <span className="muted"> · {derived.rowWorkflows.find((item) => item.id === flow.openWhen.flow)?.title} 상태가 진행 중인 항목만</span>}</dd></div>)}</dl></div>
       <div className="u-derived-card"><h3><SectionIcon name="admin" />관리자 화면</h3>
-        {derived.rowWorkflows.length === 0 && <p className="muted">행의 상태를 바꾸는 흐름이 없어 데이터 관리만 제공합니다.</p>}
+        {derived.rowWorkflows.length === 0 && !derived.blueprint.workflows.length && <p className="muted">행의 상태를 바꾸는 흐름이 없어 데이터 관리만 제공합니다.</p>}
+        {derived.blueprint.workflows.map((flow) => <p key={flow.id}>{flow.title} 내역을 승인·거절로 처리합니다.</p>)}
         <ul className="u-derived-flows">{derived.rowWorkflows.map((flow) => <li key={flow.id}>
           <strong>{flow.title}</strong>
           <span>{flow.basis === 'status_column' ? `${name(flow.statusColumn)} 값을 버튼으로 바꿉니다`
