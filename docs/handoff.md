@@ -7,7 +7,8 @@
 - 옮겨 온 것(마이그레이션 0013 하나): `operational_signals.py`, `sheet_understanding*.py`, `understanding_derivation.py`, `row_workflow*.py`, 설정 계약 `service_blueprint.py`(검증·catalog 보조만), `service_blueprint_views.py`(행 목록), 프롬프트 2편·예시, `evaluation/`(시트 10장 + 공공데이터 정답 5 + 채점기), 테스트 26개(전체 156개 통과). 프론트: `understanding/`, `blueprint/BlueprintService.jsx`(채팅·신청 없음)·`RowFlows.jsx`·`blueprint.css`, 업로드 모달·라우팅.
 - 설계·평가 기록은 `docs/sheet-understanding.md`. 평가 라운드(15장·15회)의 결과도 그 문서에 있다.
 - 실행: 기존 DB와 마이그레이션 번호가 다르므로 **새 compose 프로젝트와 새 볼륨**으로 띄운다: `docker compose -p s2s-v2 up -d --build`. 헤드리스 Chrome으로 업로드(호출 없음) → 예시 이해 주입 → 적용 → 사용자 새 건 접수 → 관리자 배정 → 대시보드까지 확인했다(`scratchpad/sim7`).
-- 남은 것: 장부형(`amount_balance`) 흐름의 기록 추가 폼, 사용자 전이가 본인 접수 건에만 허용, 접수 식별자 자동 채번, XLSX·다중 시트(6단계), 제목·요약 문구를 Claude가 다듬는 선택 호출(필요하면).
+- 항목 신청(사용자 테스트에서 발견: 체육시설을 접수중으로 바꿔도 신청할 곳이 없었다): 항목형(`catalog`/`schedule`) 시트에 요청자 행위자가 있으면 **항목 신청 흐름**(신청자·연락처·요청 내용, 접수→승인/거절, 본인 취소)을 도출한다. 기록은 `BlueprintSubmission`(마이그레이션 0014)에 시트 밖으로 남는다. 상태 컬럼 행 흐름이 있으면 `openWhen`으로 **상태 종류가 `active`(접수중)인 항목에만** 신청이 열리며 서버·화면이 같은 규칙을 쓴다. 사용자 화면: 행마다 "신청하기/신청 불가(사유 툴팁)", "내 신청 현황"; 관리자: "… 신청 내역"(승인·거절). 체육시설 CSV로 관리자 접수중 전환 → 시민 신청 → 관리자 승인까지 확인(`scratchpad/sim7`).
+- 남은 것: 장부형(`amount_balance`) 흐름의 기록 추가 폼, 사용자 전이가 본인 접수 건에만 허용, 접수 식별자 자동 채번, 신청 폼 필드를 이해에서 도출(지금은 고정 3개), XLSX·다중 시트(6단계), 제목·요약 문구를 Claude가 다듬는 선택 호출(필요하면).
 
 ## 2026-10-11 미사용 선택지 중지와 신청 승인 화면
 
