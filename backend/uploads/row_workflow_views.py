@@ -36,9 +36,7 @@ class UnderstandingApplyView(SessionView):
             raise ValidationError({"detail": "먼저 시트를 이해해야 서비스를 만들 수 있습니다."})
         effective = apply_overrides(upload.understanding, upload.understanding_overrides or {})
         derived = derive_blueprint(effective, upload.analysis)
-        blueprint = {**derived["blueprint"], "rowWorkflows": derived["rowWorkflows"]}
-        if derived["createForm"]:
-            blueprint["createForm"] = derived["createForm"]
+        blueprint = derived["blueprint"]
         with transaction.atomic():
             locked = Upload.objects.select_for_update().get(pk=upload.pk)
             apply_blueprint(locked, blueprint)

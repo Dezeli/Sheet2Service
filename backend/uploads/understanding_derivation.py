@@ -164,13 +164,47 @@ def derive_create_form(understanding, report, flow_columns=()):
     return {"actor": "user", "columns": columns} if columns else None
 
 
+def derive_submission_workflow(understanding, report, row_workflows):
+    """Items people apply for (예약·이용 신청) get one application flow whose records live outside the sheet.
+
+    Only catalog-like sheets with a requester actor; opened per item by the row's own status flow
+    when one exists, so 접수중 facilities take bookings and 접수종료 ones do not.
+    """
+    if understanding["kind"] not in ("catalog", "schedule"):
+        return None
+    if not any(actor["kind"] == "requester" for actor in understanding["actors"]):
+        return None
+    by_role = _by_role(understanding["columnRoles"])
+    subject = (by_role.get("title") or by_role.get("identifier") or [1])[0]
+    workflow = {"id": "flow_1", "title": f'{understanding["subject"] or "항목"} 신청'[:80], "subjectColumn": subject,
+                "fields": [{"id": "field_1", "label": "신청자 이름", "type": "text", "required": True},
+                           {"id": "field_2", "label": "연락처", "type": "text", "required": True},
+                           {"id": "field_3", "label": "요청 내용", "type": "text", "required": False}],
+                "states": [{"id": "state_1", "label": "접수"}, {"id": "state_2", "label": "승인"},
+                           {"id": "state_3", "label": "거절"}, {"id": "state_4", "label": "취소"}],
+                "initialState": "state_1",
+                "transitions": [{"from": "state_1", "to": "state_2", "actor": "admin", "label": "승인"},
+                                {"from": "state_1", "to": "state_3", "actor": "admin", "label": "거절"},
+                                {"from": "state_1", "to": "state_4", "actor": "owner", "label": "취소"}]}
+    gate = next((flow for flow in row_workflows if flow["basis"] == "status_column"
+                 and any(state["kind"] == "active" for state in flow["states"])), None)
+    if gate:
+        workflow["openWhen"] = {"flow": gate["id"], "kinds": ["active"]}
+    return workflow
+
+
 def derive_blueprint(understanding, report):
     """Return {blueprint, rowWorkflows, createForm, notes}; the blueprint part passes validate_blueprint."""
     catalog, notes = derive_catalog(understanding, report)
     workflows, flow_notes = derive_row_workflows(understanding, report)
     create_form = derive_create_form(understanding, report, {c for p in understanding["processes"] for c in p["columns"]})
+    submission = derive_submission_workflow(understanding, report, workflows)
     blueprint = {"version": 1, "title": (understanding["subject"] or "서비스")[:80],
                  "summary": (understanding["purpose"] or "")[:300] or "시트를 바탕으로 만든 서비스입니다.",
-                 "catalog": catalog, "workflows": []}
+                 "catalog": catalog, "workflows": [submission] if submission else [],
+                 "rowWorkflows": workflows, **({"createForm": create_form} if create_form else {})}
     validate_blueprint(blueprint, report)
+    if submission and submission.get("openWhen"):
+        gate = next(flow for flow in workflows if flow["id"] == submission["openWhen"]["flow"])
+        notes.append(f'{submission["title"]}은(는) {gate["title"]} 상태가 진행 중인 항목에만 열립니다.')
     return {"blueprint": blueprint, "rowWorkflows": workflows, "createForm": create_form, "notes": notes + flow_notes}

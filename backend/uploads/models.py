@@ -265,3 +265,22 @@ class RowHistory(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+class BlueprintSubmission(models.Model):
+    """An application a requester makes about one catalog row; its status lives here, not in the sheet."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="blueprint_submissions")
+    workflow_id = models.CharField(max_length=32)
+    subject_row = models.ForeignKey(ManagedRow, null=True, on_delete=models.SET_NULL)
+    subject_snapshot = models.TextField()
+    values = models.JSONField(default=dict)
+    status = models.CharField(max_length=32)
+    workflow_snapshot = models.JSONField()
+    created_by_session = models.CharField(max_length=40, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]

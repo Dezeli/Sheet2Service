@@ -125,7 +125,8 @@ def validate_blueprint(value, report):
         raise BlueprintError("업무 흐름은 최대 3개까지 설정할 수 있습니다.")
     workflow_ids = set()
     for workflow in workflows:
-        _object(workflow, ("id", "title", "subjectColumn", "fields", "states", "initialState", "transitions"))
+        _object(workflow, ("id", "title", "subjectColumn", "fields", "states", "initialState", "transitions"),
+                optional=("openWhen",))
         workflow_id = _id(workflow["id"])
         if workflow_id not in WORKFLOW_IDS or workflow_id in workflow_ids:
             raise BlueprintError("업무 흐름 ID가 허용 범위 밖이거나 중복되었습니다.")
@@ -178,6 +179,15 @@ def validate_blueprint(value, report):
         from .row_workflow import validate_create_form, validate_row_workflows  # row flows build on this module
         validate_row_workflows(value.get("rowWorkflows", []), report)
         validate_create_form(value.get("createForm"), report)
+    row_flow_ids = {flow["id"] for flow in value.get("rowWorkflows", [])}
+    for workflow in workflows:
+        gate = workflow.get("openWhen")
+        if gate is None:
+            continue
+        _object(gate, ("flow", "kinds"))
+        if gate["flow"] not in row_flow_ids or not isinstance(gate["kinds"], list) or not gate["kinds"] \
+                or not set(gate["kinds"]) <= {"start", "active", "waiting", "done", "cancelled"}:
+            raise BlueprintError("신청을 여는 조건이 올바르지 않습니다.")
     return value
 
 

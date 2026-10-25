@@ -12,6 +12,7 @@ from .quote_views import QuoteRequestsView, QuoteRequestView
 from .sheet_understanding_views import UnderstandingApprovalView, UnderstandingView
 from .row_workflow_views import RowCreateView, RowHistoryView, RowTransitionView, UnderstandingApplyView
 from .service_blueprint_views import BlueprintRowsView
+from .submission_views import BlueprintSubmissionsView, BlueprintSubmissionView
 
 urlpatterns = [
     path("session/", BootstrapView.as_view()),
@@ -22,6 +23,8 @@ urlpatterns = [
     path("uploads/<uuid:pk>/understanding/", UnderstandingView.as_view()),
     path("uploads/<uuid:pk>/understanding/apply/", UnderstandingApplyView.as_view()),
     path("uploads/<uuid:pk>/blueprint/rows/", BlueprintRowsView.as_view()),
+    path("uploads/<uuid:pk>/blueprint/submissions/", BlueprintSubmissionsView.as_view()),
+    path("uploads/<uuid:pk>/blueprint/submissions/<uuid:submission_id>/", BlueprintSubmissionView.as_view()),
     path("uploads/<uuid:pk>/blueprint/rows/mine/", RowCreateView.as_view()),
     path("uploads/<uuid:pk>/blueprint/rows/<uuid:row_id>/transition/", RowTransitionView.as_view()),
     path("uploads/<uuid:pk>/blueprint/rows/<uuid:row_id>/history/", RowHistoryView.as_view()),

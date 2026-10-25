@@ -42,6 +42,7 @@ class DerivationTests(SimpleTestCase):
     def test_flag_done_value_follows_the_done_state_when_states_use_sheet_values(self):
         understanding = json.loads(json.dumps(self.understanding))
         understanding["processes"][1]["states"] = [{"value": "N", "kind": "waiting"}, {"value": "Y", "kind": "done"}]
+        understanding["processes"][1]["transitions"] = [{"from": "N", "to": "Y", "actor": "a1"}]
         flow = derive_blueprint(understanding, self.report)["rowWorkflows"][1]
         self.assertEqual(flow["doneValue"], "Y")  # N is the more frequent value, but not the done one
 
