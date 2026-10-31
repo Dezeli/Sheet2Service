@@ -76,6 +76,7 @@ export default function AdminSchedule({ uploadId, service, persona, csrf, scope 
         <button type="button" className="service-back-button" onClick={() => setFrom(monday())}>이번 주</button>
         <button type="button" className="service-back-button" onClick={() => setFrom(shift(from, 7))}>다음 주 ›</button>
         <strong className="schedule-range">{days[0]} ~ {days[days.length - 1]}</strong>
+        <label className="schedule-jump">날짜로 이동<input type="date" value={from} onChange={(event) => { if (event.target.value) setFrom(shift(event.target.value, -((new Date(`${event.target.value}T00:00:00`).getDay() + 6) % 7))); }} /></label>
       </div>
       <form className="resource-search" onSubmit={(event) => { event.preventDefault(); setApplied(search.trim()); }}>
         <input type="search" aria-label="항목 검색" placeholder="항목 검색" maxLength={100} value={search} onChange={(event) => setSearch(event.target.value)} />

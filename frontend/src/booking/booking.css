@@ -140,3 +140,6 @@
 .service-page .schedule-item.tone-pending { border-color: #e2c45a; background: #fffbea; }
 .service-page .schedule-item.tone-ok { border-color: #8fc9b3; background: #f0faf5; }
 .service-page .schedule-item.tone-muted { opacity: .7; }
+
+.schedule-jump { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; font-size: .85rem; }
+.schedule-jump input { min-height: 38px; }
