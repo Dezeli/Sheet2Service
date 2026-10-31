@@ -98,9 +98,11 @@ def derive_service(understanding, report):
         for number in resources:
             partner = next((t for t in times if t > number and t not in [p[1] for p in wide_pairs]), 0)
             wide_pairs.append([number, partner])
+    implicit = kind in ("booking_records", "schedule_slots") and not resources
     reservable = kind in ("booking_records", "resource_catalog", "schedule_slots", "wide_schedule", "policy") \
-        and bool(resources) and booking["mode"] != "none"
-    accepts_new = reservable and booking["mode"] in ("approval", "instant", "lottery")
+        and (bool(resources) or implicit) and booking["mode"] != "none"
+    # A sheet of finished records (record_only) still takes new bookings: that is the point of the service.
+    accepts_new = reservable
     config = {
         "version": 1,
         "sheetKind": kind,
@@ -108,11 +110,12 @@ def derive_service(understanding, report):
         "summary": understanding["summary"],
         "columnRoles": list(understanding["columnRoles"]),
         "columnLabels": labels,
-        "resources": {"columns": resources, "levels": [labels[n - 1] for n in resources], "widePairs": wide_pairs},
+        "resources": {"columns": resources, "levels": [labels[n - 1] for n in resources] if not implicit else [understanding["subject"]],
+                      "widePairs": wide_pairs, "implicit": implicit},
         "booking": {
             "mode": booking["mode"],
             "acceptsNew": accepts_new,
-            "approvalRequired": booking["mode"] in ("approval", "lottery"),
+            "approvalRequired": booking["mode"] in ("approval", "lottery"),  # record_only and instant confirm at once
             "statusColumn": booking["statusColumn"],
             "states": list(booking["states"]),
             # Catalog rows describe the resource (check-in hours, fees); bookings against them are by date.
@@ -121,6 +124,8 @@ def derive_service(understanding, report):
             "dateColumn": _first(by_role, "date"),
             "startColumn": _first(by_role, "start"),
             "endColumn": _first(by_role, "end"),
+            "startColumns": by_role.get("start", []),  # a date column and a time column may both be "start"
+            "endColumns": by_role.get("end", []),
             "slotColumn": _first(by_role, "time_slot"),
             "bookerColumn": _first(by_role, "booker"),
             "partySizeColumns": by_role.get("party_size", []),
@@ -145,10 +150,13 @@ def derive_service(understanding, report):
             persona["features"] = [f for f in persona["features"]
                                    if f not in ("make_reservation", "my_reservations", "manage_schedule", "review_reservations")]
         config["notes"].append("예약 대상이 없어 예약 기능은 두지 않았습니다.")
-    elif not accepts_new:
+    elif implicit:
+        config["notes"].append(f'예약 대상 컬럼이 없어 "{understanding["subject"]}" 하나를 대상으로 두었습니다.')
         for persona in config["personas"]:
-            persona["features"] = [f for f in persona["features"] if f not in ("make_reservation", "my_reservations")]
-        config["notes"].append("기록만 있는 시트라 새 예약 접수는 두지 않았습니다.")
+            if persona["id"] == "booker":
+                for feature in ("browse_resources", "make_reservation", "my_reservations"):
+                    if feature not in persona["features"]:
+                        persona["features"].append(feature)
     return config
 
 
@@ -337,12 +345,25 @@ def _resource_tree(upload, rows, columns, labels, *, catalog):
     return created
 
 
+def _combine_texts(values, columns):
+    """One text for a moment that may be split over a date column and a time column ('2024-01-01' + '12:00')."""
+    texts = [_text(_value(values, number)) for number in columns]
+    texts = [text for text in texts if text]
+    if len(texts) <= 1:
+        return texts[0] if texts else ""
+    day = next((text for text in texts if parse_date(_strip_weekday(text)) and not parse_datetime_text(text)), "")
+    clock = next((text for text in texts if parse_time(text) and not parse_date(_strip_weekday(text))), "")
+    if day and clock:
+        return f"{_strip_weekday(day)} {clock}"
+    return texts[0]
+
+
 def _moment_fields(values, booking_config):
     """date, starts_at, ends_at, time_slot for one row following the derived time model."""
     cfg = booking_config
     day = parse_date(_strip_weekday(_value(values, cfg["dateColumn"]))) if cfg["dateColumn"] else None
-    start_text = _text(_value(values, cfg["startColumn"])) if cfg["startColumn"] else ""
-    end_text = _text(_value(values, cfg["endColumn"])) if cfg["endColumn"] else ""
+    start_text = _combine_texts(values, cfg.get("startColumns") or ([cfg["startColumn"]] if cfg["startColumn"] else []))
+    end_text = _combine_texts(values, cfg.get("endColumns") or ([cfg["endColumn"]] if cfg["endColumn"] else []))
     slot_text = _text(_value(values, cfg["slotColumn"])) if cfg["slotColumn"] else ""
     starts_at = ends_at = None
     if start_text and not end_text:
@@ -416,14 +437,21 @@ def apply_service(upload, config=None):
             Booking.objects.bulk_create(bookings, batch_size=500)
             counts["resources"] = len(resources)
             return dict(counts)
-        if not columns:
+        implicit = None
+        if config["resources"].get("implicit"):
+            implicit = Resource.objects.create(upload=upload, level=0, name=config["subject"][:300], path=config["subject"][:2000])
+            counts["resources"] = 1
+        elif not columns:
             return dict(counts)
-        tree = _resource_tree(upload, rows, columns, labels, catalog=kind in ("resource_catalog", "policy"))
-        counts["resources"] = len(tree)
-        if kind in ("resource_catalog", "policy"):
-            return dict(counts)
+        else:
+            tree = _resource_tree(upload, rows, columns, labels, catalog=kind in ("resource_catalog", "policy"))
+            counts["resources"] = len(tree)
+            if kind in ("resource_catalog", "policy"):
+                return dict(counts)
 
         def leaf_for(values):
+            if implicit is not None:
+                return implicit
             names_ = []
             for number in columns:
                 names_.append(_text(_value(values, number)) or "미지정")

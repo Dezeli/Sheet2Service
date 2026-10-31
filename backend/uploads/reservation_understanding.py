@@ -107,6 +107,23 @@ def _column(value, count):
     return value if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= count else 0
 
 
+STATE_KEYWORDS = (("미당첨", "lost"), ("낙첨", "lost"), ("당첨", "won"), ("취소", "cancelled"), ("환불", "cancelled"),
+                  ("거절", "rejected"), ("반려", "rejected"), ("체크아웃", "completed"), ("수료", "completed"),
+                  ("완료", "completed"), ("종료", "completed"), ("체크인", "in_use"), ("사용중", "in_use"),
+                  ("이용중", "in_use"), ("대기", "requested"), ("신청", "requested"), ("접수", "requested"),
+                  ("승인", "approved"), ("확정", "approved"), ("예약", "approved"))
+SCOPE_ROLES = ("staff", "organization", "resource_group", "resource", "booker_attribute", "location")
+
+
+def guess_state_kind(text):
+    """A kind for a status value the model did not mention, from its wording alone."""
+    lowered = str(text).replace(" ", "").lower()
+    for keyword, kind in STATE_KEYWORDS:
+        if keyword in lowered:
+            return kind
+    return "other"
+
+
 def validate_understanding(value, report):
     """Return a normalized understanding and the notes explaining each lowered item."""
     if not isinstance(value, dict):
@@ -179,8 +196,9 @@ def validate_understanding(value, report):
                 notes.append(f"데이터에 없는 상태 값 {len(states) - len(kept)}개를 제외했습니다.")
             states = kept
             for missing in sorted(observed - {state["value"] for state in states})[:MAX_STATES - len(states)]:
-                states.append({"value": missing, "kind": "other"})
-                notes.append(f'상태 컬럼에 있지만 응답에 없던 값 "{missing}"을 other로 추가했습니다.')
+                kind_guess = guess_state_kind(missing)
+                states.append({"value": missing, "kind": kind_guess})
+                notes.append(f'상태 컬럼에 있지만 응답에 없던 값 "{missing}"을 {kind_guess}로 추가했습니다.')
         else:
             notes.append("상태 컬럼의 값 집합이 12종을 넘어 상태 값을 확인할 수 없습니다.")
     else:
@@ -211,6 +229,9 @@ def validate_understanding(value, report):
         if persona_id in SCOPED_PERSONAS and not scope:
             notes.append(f"{persona_id}: 담당 범위 컬럼이 없어 제외했습니다.")
             continue
+        if persona_id in SCOPED_PERSONAS and result["columnRoles"][scope - 1] not in SCOPE_ROLES:
+            notes.append(f'{persona_id}: 담당 범위 컬럼({scope}번)의 역할이 {result["columnRoles"][scope - 1]}라 범위로 쓸 수 없어 제외했습니다.')
+            continue
         if persona_id not in SCOPED_PERSONAS:
             scope = 0
         features = []
@@ -222,7 +243,9 @@ def validate_understanding(value, report):
         seen.add(persona_id)
         personas.append({"id": persona_id, "title": _clean(item.get("title"), 40) or persona_id,
                          "scopeColumn": scope, "features": features, "evidence": _clean(item.get("evidence"), 200)})
-    reservable = kind in RESERVABLE_KINDS and (resources or kind == "wide_schedule")
+    # A records or slots sheet about one thing (a single stage, one exhibition) has no resource column;
+    # the service then gets one implicit resource named after the subject, so bookings still work.
+    reservable = kind in RESERVABLE_KINDS and (resources or kind in ("wide_schedule", "booking_records", "schedule_slots"))
     defaults = {"booker": "예약자", "admin": "관리자", "viewer": "조회자"}
     for persona_id in (("booker", "admin") if reservable else ("admin",)):
         if persona_id not in seen:

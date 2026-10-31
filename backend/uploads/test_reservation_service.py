@@ -120,8 +120,7 @@ class DerivationTests(SimpleTestCase):
         self.assertTrue(config["notes"])
 
 
-@override_settings(ANTHROPIC_API_KEY="")
-class MaterializationTests(TestCase):
+class MaterializeMixin:
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -139,6 +138,9 @@ class MaterializationTests(TestCase):
         upload.save(update_fields=["understanding"])
         return upload
 
+
+@override_settings(ANTHROPIC_API_KEY="")
+class MaterializationTests(MaterializeMixin, TestCase):
     def test_booking_records_become_a_resource_tree_and_bookings(self):
         upload = self.upload(BOOKINGS, model_answer())
         config, counts = build_service(upload)
@@ -193,3 +195,60 @@ class MaterializationTests(TestCase):
         self.assertEqual((timezone.localtime(slot.starts_at).hour, timezone.localtime(slot.ends_at).hour), (10, 12))
         afternoon = Slot.objects.get(upload=upload, date=date(2026, 4, 20))
         self.assertEqual((timezone.localtime(afternoon.starts_at).hour, timezone.localtime(afternoon.ends_at).hour), (14, 16))
+
+
+SINGLE_STAGE = ("예약일,시작시간,종료시간,내용\n"
+                "2025-11-15,13:00,14:00,버스킹 공연\n"
+                "2025-11-15,15:00,16:00,주말이용불가\n"
+                "2025-11-22,13:00,14:00,댄스 동아리\n"
+                "2025-11-29,15:00,16:00,어린이 합창\n"
+                "2025-12-06,13:00,14:00,데크 작업\n").encode("utf-8")
+
+PERIOD_SLOTS = ("시설,시작월일,종료월일,시작시간,종료시간\n"
+                "울산대종 타종1회차,2024-01-01,2024-12-31,12:00,13:00\n"
+                "울산대종 타종2회차,2024-01-01,2024-12-31,15:00,16:00\n"
+                "전망대,2024-03-01,2024-11-30,09:00,18:00\n"
+                "전망대 야간,2024-06-01,2024-08-31,19:00,22:00\n"
+                "체험관,2024-01-01,2024-12-31,10:00,17:00\n").encode("utf-8")
+
+
+def single_stage_answer():
+    return model_answer(sheetKind="booking_records", subject="공연 데크", resourceColumns=[],
+                        columnRoles=["date", "start", "end", "purpose"], columnEvidence=[""] * 4,
+                        booking={"mode": "record_only", "statusColumn": 0, "stateValues": [], "stateKinds": [], "evidence": ""},
+                        personas=[], questions=[])
+
+
+def period_slots_answer():
+    return model_answer(sheetKind="schedule_slots", subject="공공시설 이용 시간대", resourceColumns=[1],
+                        columnRoles=["resource", "start", "end", "start", "end"], columnEvidence=[""] * 5,
+                        booking={"mode": "instant", "statusColumn": 0, "stateValues": [], "stateKinds": [], "evidence": ""},
+                        personas=[], questions=[])
+
+
+@override_settings(ANTHROPIC_API_KEY="")
+class SingleResourceTests(MaterializeMixin, TestCase):
+    def test_a_sheet_about_one_thing_gets_an_implicit_resource_and_still_takes_bookings(self):
+        upload = self.upload(SINGLE_STAGE, single_stage_answer())
+        config, counts = build_service(upload)
+        self.assertTrue(config["resources"]["implicit"])
+        self.assertEqual(config["resources"]["levels"], ["공연 데크"])
+        self.assertTrue(config["booking"]["acceptsNew"])
+        self.assertFalse(config["booking"]["approvalRequired"])
+        booker = next(persona for persona in config["personas"] if persona["id"] == "booker")
+        self.assertIn("make_reservation", booker["features"])
+        self.assertEqual(counts, {"resources": 1, "bookings": 5})
+        stage = Resource.objects.get(upload=upload)
+        self.assertEqual((stage.name, stage.level), ("공연 데크", 0))
+        first = Booking.objects.filter(upload=upload).order_by("date", "starts_at").first()
+        self.assertEqual((first.resource_id, first.status, first.purpose), (stage.id, "completed", "버스킹 공연"))
+        self.assertEqual(timezone.localtime(first.starts_at).hour, 13)
+
+    def test_a_date_column_and_a_time_column_both_marked_start_combine(self):
+        upload = self.upload(PERIOD_SLOTS, period_slots_answer())
+        config, counts = build_service(upload)
+        self.assertEqual(config["booking"]["startColumns"], [2, 4])
+        self.assertEqual(counts, {"resources": 5, "slots": 5})
+        bell = Slot.objects.get(upload=upload, resource__name="울산대종 타종1회차")
+        self.assertEqual((bell.date, timezone.localtime(bell.starts_at).hour, timezone.localtime(bell.ends_at).hour),
+                         (date(2024, 1, 1), 12, 13))
