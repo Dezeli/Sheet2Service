@@ -193,3 +193,27 @@ class PaymentApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(paid.data["events"][-1]["note"], "결제완료 · 현금")
         self.assertEqual(self.client.get(self.base + "bookings/?persona=finance&payment=paid").data["count"], 3)
         self.assertEqual(self.mutate(f"bookings/{booking}/", {"persona": "booker", "action": "mark_paid"}, "patch").status_code, 400)
+
+
+class ResourceFacetTests(ServiceClientMixin, APITestCase):
+    from .test_reservation_service import CATALOG as csv_data  # noqa: F401
+
+    def answer(self):
+        from .test_reservation_service import catalog_answer
+        return catalog_answer()
+
+    def test_facets_come_from_attributes_and_filter_the_list(self):
+        facets = self.client.get(self.base + "resources/facets/").data
+        self.assertEqual(facets["total"], 5)
+        self.assertEqual([group["name"] for group in facets["groups"]], ["A구역", "B구역", "C구역"])
+        kinds = next(facet for facet in facets["facets"] if facet["label"] == "시설분류")
+        self.assertEqual(sum(item["count"] for item in kinds["values"]), 5)
+        self.assertIn("정원", [item["label"] for item in facets["ranges"]])
+        self.assertIn("평일금액", [item["label"] for item in facets["ranges"]])
+        filtered = self.client.get(self.base + "resources/?f=시설분류:카라반").data
+        self.assertEqual((filtered["count"], filtered["resources"][0]["name"], filtered["filtering"]), (1, "카라반B", True))
+        roomy = self.client.get(self.base + "resources/?min=정원:6").data
+        self.assertEqual(sorted(item["name"] for item in roomy["resources"]), ["글램핑C", "오토캠핑C", "일반캠핑A"])
+        cheap = self.client.get(self.base + "resources/?max=평일금액:20000&group=" + facets["groups"][2]["id"]).data
+        self.assertEqual([item["name"] for item in cheap["resources"]], ["오토캠핑C"])
+        self.assertEqual(self.client.get(self.base + "resources/?max=평일금액:abc").status_code, 400)

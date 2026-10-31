@@ -1,5 +1,7 @@
 """Resources, slots and bookings of a generated reservation service. Deterministic; no model call."""
+import re
 import uuid
+from collections import Counter
 from datetime import date as date_type
 
 from django.db import transaction
@@ -131,26 +133,125 @@ def column_label(config, number):
     return labels[number - 1] if 0 < number <= len(labels) else f"컬럼 {number}"
 
 
+SUMMARY_KEYS = ("기록 건수", "기록 기준 금액", "자주 쓰인 시간대", "평균 인원", "평균 이용 기간", "원본 코드")
+MAX_FACET_VALUES = 12
+MAX_GROUP_CHIPS = 20
+
+
+def _number_of(text):
+    cleaned = re.sub(r"[^\d.]", "", str(text).split("~")[0])
+    try:
+        return float(cleaned) if cleaned else None
+    except ValueError:
+        return None
+
+
+def resource_facets(upload):
+    """Filter choices from what the resources carry: small value sets, numeric ranges and top-level groups."""
+    leaves = Resource.objects.filter(upload=upload, active=True).annotate(children_total=Count("children")).filter(children_total=0)
+    values, numbers = {}, {}
+    total = 0
+    for attributes, capacity in leaves.values_list("attributes", "capacity"):
+        total += 1
+        if capacity is not None:
+            numbers.setdefault("정원", []).append(float(capacity))
+        for key, value in (attributes or {}).items():
+            if key in SUMMARY_KEYS and key != "기록 기준 금액":
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            number = _number_of(text)
+            if number is not None and (re.fullmatch(r"[\d,.]+\s*원?", text) or key == "기록 기준 금액" or key == "정원"):
+                numbers.setdefault(key, []).append(number)
+            values.setdefault(key, Counter())[text[:60]] += 1
+    facets = []
+    for key, counter in values.items():
+        if 2 <= len(counter) <= MAX_FACET_VALUES and sum(counter.values()) >= 2 and key not in numbers:
+            facets.append({"label": key, "values": [{"value": value, "count": count} for value, count in counter.most_common()]})
+    capacity_values = sorted(numbers.get("정원", []))
+    ranges = [{"label": key, "min": min(items), "max": max(items)} for key, items in numbers.items()
+              if len(items) >= 2 and min(items) < max(items)
+              and (key == "정원" or sorted(items) != capacity_values)]  # the capacity's source column is the same facet
+    groups = []
+    tops = list(Resource.objects.filter(upload=upload, active=True, level=0).annotate(children_total=Count("children")).order_by("path"))
+    if 1 < len(tops) <= MAX_GROUP_CHIPS and any(top.children_total for top in tops):
+        groups = [{"id": str(top.id), "name": top.name, "count": top.children_total} for top in tops]
+    return {"total": total, "facets": facets[:6], "ranges": ranges[:4], "groups": groups}
+
+
+def _matches_numbers(resource, limits):
+    for key, (low, high) in limits.items():
+        raw = resource.capacity if key == "정원" else (resource.attributes or {}).get(key)
+        number = _number_of(raw) if raw is not None else None
+        if number is None or (low is not None and number < low) or (high is not None and number > high):
+            return False
+    return True
+
+
+class ResourceFacetsView(SessionView):
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        return Response(resource_facets(upload))
+
+
 class ResourcesView(SessionView):
     parser_classes = [JSONParser]
 
     def get(self, request, pk):
         upload = service_upload(request, pk)
+        params = request.query_params
         resources = Resource.objects.filter(upload=upload)
-        if request.query_params.get("all") != "1":
+        if params.get("all") != "1":
             resources = resources.filter(active=True)
-        query = (request.query_params.get("q") or "").strip()
-        parent = request.query_params.get("parent")
+        query = (params.get("q") or "").strip()
+        parent = params.get("parent")
+        filters = [item.split(":", 1) for item in params.getlist("f") if ":" in item]
+        limits = {}
+        for item in params.getlist("min") + params.getlist("max"):
+            if ":" not in item:
+                continue
+            key, raw = item.split(":", 1)
+            try:
+                number = float(raw)
+            except ValueError:
+                fail("범위 필터 값이 올바르지 않습니다.")
+            low, high = limits.get(key, (None, None))
+            limits[key] = (number, high) if item in params.getlist("min") else (low, number)
+        filtering = bool(query or filters or limits or params.get("group"))
+        if params.get("group"):
+            group = get_object_or_404(Resource, pk=identifier(params["group"]), upload=upload)
+            resources = resources.filter(path__startswith=group.path + " / ")
+            if not (query or filters or limits):
+                resources = resources.filter(parent=group)  # the group's own children, not every descendant
         if query:
             resources = resources.filter(path__icontains=query[:100])
+        for key, value in filters[:8]:
+            resources = resources.filter(**{f"attributes__{key[:60]}": value[:60]})
+        if filtering:
+            # filters describe leaves; a matching branch node only shows up when it carries the attribute itself
+            resources = resources.annotate(children_total=Count("children", distinct=True))
+            if filters or limits:
+                resources = resources.filter(children_total=0)
         elif parent:
             resources = resources.filter(parent_id=identifier(parent))
         else:
             resources = resources.filter(level=0)
         resources = resources.annotate(children_total=Count("children", distinct=True),
                                        active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE), distinct=True)).order_by("path")
-        items, paging = paginated(resources, request)
-        return Response({**paging, "levels": upload.service_config["resources"]["levels"],
+        if limits:
+            matched = [item for item in resources[:5000] if _matches_numbers(item, limits)]
+            try:
+                page = int(params.get("page", "1"))
+            except ValueError:
+                fail("페이지 번호가 올바르지 않습니다.")
+            if page < 1 or page > max(1, (len(matched) + PAGE - 1) // PAGE):
+                fail("페이지 번호가 범위를 벗어났습니다.")
+            items = matched[(page - 1) * PAGE:page * PAGE]
+            paging = {"page": page, "count": len(matched), "has_next": page * PAGE < len(matched)}
+        else:
+            items, paging = paginated(resources, request)
+        return Response({**paging, "levels": upload.service_config["resources"]["levels"], "filtering": filtering,
                          "resources": [resource_payload(item, item.children_total, item.active_bookings) for item in items]})
 
     def post(self, request, pk):

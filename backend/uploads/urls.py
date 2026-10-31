@@ -3,7 +3,7 @@ from django.urls import path
 from .views import BootstrapView, ChartCountsView, DetailView, GenerateView, OriginalView, RowsView, ServiceView, UploadView
 from .admin_views import FieldChoicesView, FieldChoiceView, FieldLabelView, ManagedRowsView, ManagedRowView
 from .understanding_views import UnderstandingView
-from .booking_views import (AvailabilityView, BookingStatsView, BookingView, BookingsView, ResourceView, ResourcesView, ScopesView,
+from .booking_views import (AvailabilityView, BookingStatsView, BookingView, BookingsView, ResourceFacetsView, ResourceView, ResourcesView, ScopesView,
                             SlotView, SlotsView)
 from .inquiry_views import InquiriesView, InquiryView, InquiryStatsView
 from .notice_views import NoticesView, NoticeView
@@ -16,6 +16,7 @@ urlpatterns = [
     path("uploads/<uuid:pk>/generate/", GenerateView.as_view()),
     path("uploads/<uuid:pk>/understanding/", UnderstandingView.as_view()),
     path("uploads/<uuid:pk>/resources/", ResourcesView.as_view()),
+    path("uploads/<uuid:pk>/resources/facets/", ResourceFacetsView.as_view()),
     path("uploads/<uuid:pk>/resources/<uuid:resource_id>/", ResourceView.as_view()),
     path("uploads/<uuid:pk>/slots/", SlotsView.as_view()),
     path("uploads/<uuid:pk>/slots/<uuid:slot_id>/", SlotView.as_view()),

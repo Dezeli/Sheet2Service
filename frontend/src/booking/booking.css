@@ -103,3 +103,21 @@
 .service-page .calendar-day.is-selected small { color: #e6f2f0; }
 .reserve-summary { margin: 0; }
 .reserve-dialog { width: min(720px, 94vw); }
+
+.facet-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 8px 12px; margin-bottom: 10px; }
+.facet-label { font-size: .85rem; font-weight: 600; color: var(--muted); padding-top: 10px; }
+.service-page .chip small { margin-left: 6px; font-size: .72rem; color: var(--muted); }
+.service-page .chip.is-selected small { color: #e6f2f0; }
+.resource-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; margin-top: 8px; }
+.resource-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.resource-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.resource-card-head .service-title-button { font-size: 1.05rem; font-weight: 700; text-align: left; overflow-wrap: anywhere; }
+.resource-card-path { margin: -6px 0 0; font-size: .8rem; }
+.resource-card-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; margin: 0; }
+.resource-card-facts div { min-width: 0; }
+.resource-card-facts dt { font-size: .75rem; color: var(--muted); }
+.resource-card-facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.resource-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: auto; }
+.resource-card-actions .muted { margin-right: auto; font-size: .85rem; }
+.service-page .resource-card-actions button { min-height: 38px; padding: 4px 14px; }
+@media (max-width: 640px) { .facet-row { grid-template-columns: 1fr; } .facet-label { padding-top: 0; } }
