@@ -32,3 +32,6 @@ coverage/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local sample sheets (the five committed ones live in docs/samples/)
+/Samples/
