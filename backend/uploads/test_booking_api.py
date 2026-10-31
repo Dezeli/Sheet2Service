@@ -1,5 +1,5 @@
 """Resources, slots and bookings through the API, as each persona. No model call."""
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
@@ -217,3 +217,30 @@ class ResourceFacetTests(ServiceClientMixin, APITestCase):
         cheap = self.client.get(self.base + "resources/?max=평일금액:20000&group=" + facets["groups"][2]["id"]).data
         self.assertEqual([item["name"] for item in cheap["resources"]], ["오토캠핑C"])
         self.assertEqual(self.client.get(self.base + "resources/?max=평일금액:abc").status_code, 400)
+
+
+class ScheduleApiTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return model_answer()
+
+    def test_week_view_lists_bookings_per_resource_and_marks_overbooked_days(self):
+        room = Resource.objects.get(upload=self.upload, path="변산 자연휴양림 / 우럭")
+        # the imported 2026-03-03 stay is already checked out, so it is not a conflict; two live bookings are
+        for name in ("겹침1", "겹침2"):
+            Booking.objects.create(upload=self.upload, resource=room, date=date(2026, 3, 5), status="approved", booker=name)
+        week = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2026-03-02&days=7").data
+        self.assertEqual(week["days"][0], "2026-03-02")
+        row = next(item for item in week["resources"] if item["id"] == str(room.id))
+        self.assertEqual(len(row["days"]["2026-03-03"]), 1)
+        self.assertEqual(len(row["days"]["2026-03-05"]), 2)
+        self.assertEqual(row["conflicts"], {"2026-03-05": 1})  # capacity defaults to one
+        self.assertEqual(week["conflict_total"], 1)
+        self.assertEqual(week["conflicts"][0]["name"], "우럭")
+        only = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2026-03-02&days=7&conflicts_only=1").data
+        self.assertEqual([item["name"] for item in only["resources"]], ["우럭"])
+        self.assertEqual(self.client.get(self.base + "bookings/schedule/?persona=booker").status_code, 400)
+        self.assertEqual(self.client.get(self.base + "bookings/schedule/?persona=org_manager&from=2026-03-02").status_code, 400)
+        scoped = self.client.get(self.base + "bookings/schedule/?persona=org_manager&from=2026-03-02&scope=유명산 자연휴양림").data
+        self.assertTrue(all(item["path"].startswith("유명산") for item in scoped["resources"]))

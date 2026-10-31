@@ -8,6 +8,7 @@ import { api, featureLabels, hasFeature, modeLabels, personaIcons, query } from 
 import ResourceBrowser from './ResourceBrowser';
 import MyBookings from './MyBookings';
 import BookingReview from './BookingReview';
+import AdminSchedule from './AdminSchedule';
 import ResourceAdmin from './ResourceAdmin';
 import SlotAdmin from './SlotAdmin';
 import BookingStats from './BookingStats';
@@ -23,7 +24,7 @@ function menuFor(persona, service) {
   const add = (key, label, icon) => items.push({ key, label, icon });
   if (hasFeature(persona, 'browse_resources')) add('browse', `${subject} ${hasFeature(persona, 'make_reservation') ? '찾기·예약' : '둘러보기'}`, 'table');
   if (hasFeature(persona, 'my_reservations')) add('mine', '내 예약', 'reservation');
-  if (hasFeature(persona, 'review_reservations')) add('review', '예약 관리', 'request');
+  if (hasFeature(persona, 'review_reservations')) { add('review', '예약 관리', 'request'); add('schedule', '일정표', 'reservation'); }
   if (hasFeature(persona, 'manage_schedule')) add('slots', '일정·정원', 'reservation');
   if (hasFeature(persona, 'manage_resources')) add('resources', `${subject} 관리`, 'table');
   if (hasFeature(persona, 'inquiry')) add('inquiry', '문의', 'inquiry');
@@ -169,6 +170,7 @@ export default function BookingService({ uploadId, page }) {
           {active === 'browse' && <ResourceBrowser uploadId={uploadId} service={service} persona={persona} csrf={csrf} onReserved={() => setRefresh((n) => n + 1)} />}
           {active === 'mine' && <MyBookings uploadId={uploadId} service={service} persona={persona} csrf={csrf} refreshKey={refresh} />}
           {active === 'review' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} />}
+          {active === 'schedule' && <AdminSchedule uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} />}
           {active === 'payments' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} mode="payments" />}
           {active === 'slots' && <SlotAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}
           {active === 'resources' && <ResourceAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}

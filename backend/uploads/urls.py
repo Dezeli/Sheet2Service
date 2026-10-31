@@ -5,6 +5,7 @@ from .admin_views import FieldChoicesView, FieldChoiceView, FieldLabelView, Mana
 from .understanding_views import UnderstandingView
 from .booking_views import (AvailabilityView, BookingStatsView, BookingView, BookingsView, ResourceFacetsView, ResourceView, ResourcesView, ScopesView,
                             SlotView, SlotsView)
+from .schedule_views import ScheduleView
 from .inquiry_views import InquiriesView, InquiryView, InquiryStatsView
 from .notice_views import NoticesView, NoticeView
 
@@ -23,6 +24,7 @@ urlpatterns = [
     path("uploads/<uuid:pk>/bookings/", BookingsView.as_view()),
     path("uploads/<uuid:pk>/bookings/stats/", BookingStatsView.as_view()),
     path("uploads/<uuid:pk>/bookings/availability/", AvailabilityView.as_view()),
+    path("uploads/<uuid:pk>/bookings/schedule/", ScheduleView.as_view()),
     path("uploads/<uuid:pk>/bookings/scopes/", ScopesView.as_view()),
     path("uploads/<uuid:pk>/bookings/<uuid:booking_id>/", BookingView.as_view()),
     path("uploads/<uuid:pk>/inquiries/", InquiriesView.as_view()),
