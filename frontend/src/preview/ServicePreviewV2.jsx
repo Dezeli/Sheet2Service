@@ -99,6 +99,7 @@ function ValidatedRuntime({ config, columns, records, chartAggregates }) {
 export default function ServicePreviewV2({ uploadId, report, config, usedFallback }) {
   const [opened, setOpened] = useState(true);
   const [browseAll, setBrowseAll] = useState(false);
+  useEffect(() => { showAllRows(); }, [uploadId]);  // the dashboard always counts the whole sheet
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState(report.preview);
   const [loading, setLoading] = useState(false);
@@ -153,28 +154,14 @@ export default function ServicePreviewV2({ uploadId, report, config, usedFallbac
     } finally { setLoading(false); }
   }
 
-  function showFirstRows() {
-    setBrowseAll(false);
-    setRows(report.preview);
-    setPage(1);
-    setError('');
-  }
-
   return <section className="panel" aria-labelledby="service-preview-title">
     <div className="section-title"><h2 id="service-preview-title" className="icon-heading"><SectionIcon name="analysis" />데이터 통계</h2>
       <button type="button" className="service-back-button" onClick={() => setOpened(!opened)} aria-expanded={opened}>
         {opened ? '접기' : '펼치기'}
       </button></div>
-    <p className="muted">{browseAll
-      ? `전체 ${report.row_count.toLocaleString()}개 항목 · 그래프는 전체 데이터 기준입니다.`
-      : `처음 ${records.length.toLocaleString()}개 항목 기준입니다.`}</p>
+    <p className="muted">{browseAll ? `전체 ${report.row_count.toLocaleString()}개 항목 기준입니다.` : loading ? '전체 데이터를 집계하는 중입니다.' : `처음 ${records.length.toLocaleString()}개 항목 기준입니다.`}</p>
     {usedFallback && <p className="notice">기본 표 형식으로 표시합니다.</p>}
     {opened && <>
-      {report.row_count > 20 && <button type="button" className="service-back-button"
-        disabled={loading}
-        onClick={() => browseAll ? showFirstRows() : showAllRows()}>
-        {loading ? '불러오는 중…' : browseAll ? '앞 20행만 보기' : '전체 행 보기'}
-      </button>}
       <PreviewRuntimeV2 key={String(browseAll)} config={config} columns={report.columns} records={records}
         chartAggregates={browseAll ? chartAggregates : null} />
       {browseAll && report.row_count > 20 && <nav className="service-pagination" aria-label="데이터 페이지">
