@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ListControls, { listQuery } from '../components/ListControls';
 import ServiceDialog from '../components/ServiceDialog';
-import InquiryPage from '../inquiry/InquiryPage';
-import RequestManagement from '../requests/RequestManagement';
 import { createAdminConfig } from './config.js';
 import './admin.css';
 import { rowSummary } from './rowSummary.js';
@@ -10,7 +8,7 @@ import RowEditor from './RowEditor';
 import FieldNameEditor, { FieldActionIcon } from './FieldNameEditor';
 import ChoiceManagement from './ChoiceManagement';
 
-const labels = { records: '데이터 관리', fields: '필드 구성', choices: '선택지 관리', requests: '신청 관리' };
+const labels = { records: '데이터 관리', fields: '필드 구성', choices: '선택지 관리' };
 const typeLabels = { text: '텍스트', number: '숫자', date: '날짜', datetime: '날짜·시간', time: '시간', boolean: '참·거짓', formula: '수식 형태', mixed: '혼합', unknown: '알 수 없음', empty: '빈 값', url: 'URL', email: '이메일' };
 
 async function request(url, options = {}) {
@@ -178,13 +176,13 @@ export default function AdminPreview({ uploadId, report, dashboardConfig, workfl
       <nav aria-label="관리자 화면 선택">
         {config.views.map((item, index) => <button key={item.template} type="button"
           aria-current={selected === index ? 'page' : undefined} onClick={() => { setSelected(index); setEditor(null); setError(''); }}>
-          {item.template === 'requests' && workflowConfig?.admin?.template === 'reply_inquiries' ? '문의 관리' : labels[item.template]}
+          {labels[item.template]}
         </button>)}
       </nav>
     </aside>}
     <div className={embedded ? undefined : 'admin-content'}>
       <div className="admin-heading">
-        <div><h2>{view.template === 'requests' && workflowConfig?.admin?.template === 'reply_inquiries' ? '문의 관리' : labels[view.template]}</h2></div>
+        <div><h2>{labels[view.template]}</h2></div>
         <span>{view.template === 'choices' ? `${choiceList.length.toLocaleString()}개 선택지`
           : view.template === 'fields' ? `${report.column_count.toLocaleString()}개 필드`
           : `${rowCount.toLocaleString()}개 데이터 · ${report.column_count.toLocaleString()}개 필드`}</span>
@@ -249,10 +247,6 @@ export default function AdminPreview({ uploadId, report, dashboardConfig, workfl
         choices={choiceList} loaded={Object.hasOwn(choices, column)} busy={busy} canSave={!!csrf} message={message} error={error}
         onClearError={() => setError('')}
         onColumn={(number) => { setColumn(number); setMessage(''); setError(''); }} onAdd={addChoice} onUpdate={updateChoice} />}
-      {view.template === 'requests' && workflowConfig?.admin?.template === 'reply_inquiries' &&
-        <InquiryPage uploadId={uploadId} config={workflowConfig} admin />}
-      {view.template === 'requests' && workflowConfig?.admin?.template !== 'reply_inquiries' &&
-        <RequestManagement uploadId={uploadId} />}
       {!['records', 'choices'].includes(view.template) && message && <p className="notice" role="status">{message}</p>}
     </div>
   </section>;

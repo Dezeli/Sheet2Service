@@ -1,6 +1,6 @@
 import { validateConfigV2 } from '../preview/configV2.js';
 
-const TEMPLATES = Object.freeze(['records', 'fields', 'choices', 'requests']);
+const TEMPLATES = Object.freeze(['records', 'fields', 'choices']);
 
 export function createAdminConfig(report, dashboardConfig, workflowConfig = null) {
   validateConfigV2(dashboardConfig, report.columns);
@@ -12,9 +12,6 @@ export function createAdminConfig(report, dashboardConfig, workflowConfig = null
     { template: 'fields', columns },
     { template: 'choices', columns },
   ];
-  if (['review_requests', 'monitor_requests', 'reply_inquiries'].includes(workflowConfig?.admin?.template)) {
-    views.push({ template: 'requests', columns: [workflowConfig.admin.subjectColumn || 1] });
-  }
   return validateAdminConfig({
     version: 1,
     views,
@@ -23,7 +20,7 @@ export function createAdminConfig(report, dashboardConfig, workflowConfig = null
 
 export function validateAdminConfig(config, columns) {
   if (!config || config.version !== 1 || !Array.isArray(config.views)
-      || ![3, 4].includes(config.views.length)
+      || config.views.length !== 3
       || config.views.some((view) => !view || !TEMPLATES.includes(view.template))
       || config.views.some((view, index) => !view || view.template !== TEMPLATES[index]
         || Object.keys(view).some((key) => !['template', 'columns'].includes(key))

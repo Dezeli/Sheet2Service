@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { countGroups } from './charts.js';
-import { validateConfig } from './config.js';
+import { validateConfigV2 } from './configV2.js';
 
 const records = (values) => values.map((value, index) => ({ id: String(index), values: { category: value } }));
 
@@ -25,13 +25,13 @@ test('many categories are combined without losing counts and retain stable order
   assert.equal(result.reduce((sum, g) => sum + g.count, 0), 12);
 });
 
-test('chart config only accepts supported types, aggregation and existing column references', () => {
-  const config = { version: 1, title: '차트', pages: [{ id: 'list', title: '목록', template: 'cards', bindings: { title: 'category' }, charts: [{ type: 'bar', title: '분류', groupBy: 'category', aggregate: 'count' }] }] };
+test('v2 chart config only accepts supported types, aggregation and existing columns', () => {
+  const config = { version: 2, views: [{ template: 'table', columns: [1], charts: [{ type: 'bar', groupColumn: 1, aggregate: 'count' }] }] };
   const columns = [{ id: 'category' }];
-  assert.equal(validateConfig(config, columns), config);
-  for (const change of [{ type: 'script' }, { aggregate: 'sum' }, { groupBy: 'missing' }, { title: '' }, { code: 'run()' }]) {
+  assert.equal(validateConfigV2(config, columns), config);
+  for (const change of [{ type: 'script' }, { aggregate: 'sum' }, { groupColumn: 9 }, { code: 'run()' }]) {
     const bad = structuredClone(config);
-    Object.assign(bad.pages[0].charts[0], change);
-    assert.throws(() => validateConfig(bad, columns));
+    Object.assign(bad.views[0].charts[0], change);
+    assert.throws(() => validateConfigV2(bad, columns));
   }
 });

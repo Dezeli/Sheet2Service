@@ -10,7 +10,7 @@ async function api(url, options = {}) {
   return data;
 }
 
-export default function InquiryPage({ uploadId, config, admin = false }) {
+export default function InquiryPage({ uploadId, subjectColumn = 0, admin = false }) {
   const [list, setList] = useState({ inquiries: [], page: 1, count: 0, has_next: false });
   const [csrf, setCsrf] = useState('');
   const [title, setTitle] = useState('');
@@ -22,7 +22,7 @@ export default function InquiryPage({ uploadId, config, admin = false }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const working = useRef(false);
-  const column = config.user.subjectColumn;
+  const column = subjectColumn;
   const base = `/api/uploads/${uploadId}/inquiries/`;
   async function load(page = 1) {
     const result = await api(`${base}?page=${page}${admin ? '' : '&mine=1'}`);

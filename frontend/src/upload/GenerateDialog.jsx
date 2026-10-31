@@ -21,7 +21,7 @@ export default function GenerateDialog({ file, summary, busy, error, canRetry, o
         <span className="visually-hidden">파일을 처리하고 있습니다.</span>
       </span>}
     </div>
-    <p id="generate-purpose">데이터를 분석하여 서비스와 기능을 추천하고 구현합니다.</p>
+    <p id="generate-purpose">시트를 읽어 무엇이 예약되고 누가 관리하는지 파악한 뒤 예약 서비스를 바로 만듭니다. 컬럼 분석과 예시 행만 보내며 Claude를 1회 호출합니다.</p>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="generate-actions">
       <button type="button" className="generate-cancel" disabled={busy} onClick={onClose}>취소</button>

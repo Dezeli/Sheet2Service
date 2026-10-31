@@ -9,7 +9,7 @@ async function api(url, options = {}) {
   return data;
 }
 
-export default function NoticePage({ uploadId, config, admin = false }) {
+export default function NoticePage({ uploadId, title, admin = false }) {
   const [list, setList] = useState({ notices: [], page: 1, count: 0, has_next: false });
   const [csrf, setCsrf] = useState('');
   const [editor, setEditor] = useState(null);
@@ -49,7 +49,7 @@ export default function NoticePage({ uploadId, config, admin = false }) {
   return <div className="inquiry-page">
     {error && <p className="error" role="alert">{error}</p>}
     <section className="panel">
-      <div className="section-title"><h2>{config[admin ? 'admin' : 'user'].title || (admin ? '공지 관리' : '공지')}</h2>
+      <div className="section-title"><h2>{title || (admin ? '공지 관리' : '공지')}</h2>
         {admin && <button type="button" data-intent="primary" disabled={busy} onClick={() => {
           setEditor({ title: '', body: '', is_published: false }); setError(''); setMessage('');
         }}>공지 작성</button>}
