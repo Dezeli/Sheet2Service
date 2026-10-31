@@ -6,9 +6,9 @@ from pathlib import Path
 from django.conf import settings
 
 from .call_records import finish_call, start_call
-from .inference import InferenceError
+from .claude import InferenceError
 from .models import ModelCall
-from .preview_request_v2 import build_input
+from .analysis_input import build_input
 from .reservation_understanding import UnderstandingError, parse_understanding_response, understanding_schema
 
 SETTINGS_DIR = Path(__file__).resolve().parents[1] / "claude_api_settings"

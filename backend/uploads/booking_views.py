@@ -1,0 +1,543 @@
+"""Resources, slots and bookings of a generated reservation service. Deterministic; no model call."""
+import uuid
+from datetime import date as date_type
+
+from django.db import transaction
+from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.dateparse import parse_date as iso_date, parse_datetime as iso_datetime
+from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import JSONParser
+from rest_framework.response import Response
+
+from .models import Booking, BookingEvent, Resource, Slot
+from .reservation_service import parse_int
+from .service_access import REVIEW_PERSONAS, requested_persona, service_upload
+from .views import SessionView
+
+PAGE = 20
+ACTIVE = ("requested", "approved", "in_use", "waiting", "won")
+# action -> (allowed from, to). Reviewers may take every action; bookers only cancel their own.
+ACTIONS = {
+    "approve": (("requested", "waiting"), "approved"),
+    "reject": (("requested", "waiting"), "rejected"),
+    "cancel": (("requested", "approved", "waiting", "won"), "cancelled"),
+    "check_in": (("approved", "won"), "in_use"),
+    "complete": (("approved", "in_use", "won"), "completed"),
+    "reopen": (("rejected", "cancelled", "completed", "other", "lost"), "requested"),
+}
+
+
+def fail(message):
+    raise ValidationError({"detail": message})
+
+
+def identifier(value):
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        fail("선택한 항목이 올바르지 않습니다.")
+
+
+def paginated(query, request):
+    try:
+        page = int(request.query_params.get("page", "1"))
+    except ValueError:
+        fail("페이지 번호가 올바르지 않습니다.")
+    count = query.count()
+    if page < 1 or page > max(1, (count + PAGE - 1) // PAGE):
+        fail("페이지 번호가 범위를 벗어났습니다.")
+    return query[(page - 1) * PAGE:page * PAGE], {"page": page, "count": count, "has_next": page * PAGE < count}
+
+
+def text_field(data, key, maximum, *, required=False):
+    value = data.get(key, "")
+    if value is None:
+        value = ""
+    if not isinstance(value, str) or len(value.strip()) > maximum or (required and not value.strip()):
+        fail(f"{key}: {'1~' if required else '최대 '}{maximum}자로 입력해 주세요.")
+    return value.strip()
+
+
+def resource_payload(resource, children=None, bookings=None):
+    return {"id": str(resource.id), "name": resource.name, "level": resource.level, "path": resource.path,
+            "parent": str(resource.parent_id) if resource.parent_id else None, "capacity": resource.capacity,
+            "attributes": resource.attributes, "active": resource.active,
+            "children_count": children if children is not None else resource.children.count(),
+            "booking_count": bookings if bookings is not None else resource.bookings.filter(status__in=ACTIVE).count()}
+
+
+def slot_payload(slot, booked=None):
+    if booked is None:
+        booked = slot.bookings.filter(status__in=ACTIVE).count()
+    remaining = None if slot.capacity is None else max(0, slot.capacity - slot.imported_count - booked)
+    return {"id": str(slot.id), "resource": str(slot.resource_id) if slot.resource_id else None,
+            "resource_name": slot.resource.name if slot.resource_id else "",
+            "date": slot.date.isoformat() if slot.date else None,
+            "starts_at": slot.starts_at.isoformat() if slot.starts_at else None,
+            "ends_at": slot.ends_at.isoformat() if slot.ends_at else None,
+            "time_slot": slot.time_slot, "capacity": slot.capacity, "imported_count": slot.imported_count,
+            "booked": booked, "remaining": remaining, "closed": slot.closed}
+
+
+def booking_payload(item, session_key="", events=False):
+    payload = {"id": str(item.id),
+               "resource": {"id": str(item.resource_id), "name": item.resource.name, "path": item.resource.path} if item.resource_id else None,
+               "slot": str(item.slot_id) if item.slot_id else None,
+               "booker": item.booker, "party_size": item.party_size,
+               "date": item.date.isoformat() if item.date else None,
+               "starts_at": item.starts_at.isoformat() if item.starts_at else None,
+               "ends_at": item.ends_at.isoformat() if item.ends_at else None,
+               "time_slot": item.time_slot, "status": item.status, "status_label": item.status_label,
+               "purpose": item.purpose, "amount": str(item.amount) if item.amount is not None else None,
+               "payment": item.payment, "staff": item.staff, "organization": item.organization,
+               "attributes": item.attributes, "processing_note": item.processing_note,
+               "requested_at": item.requested_at.isoformat() if item.requested_at else None,
+               "created_at": item.created_at.isoformat(), "updated_at": item.updated_at.isoformat(),
+               "imported": item.source_row_id is not None,
+               "mine": bool(session_key) and item.created_by_session == session_key}
+    if events:
+        payload["events"] = [{"from": event.from_status, "to": event.to_status, "persona": event.persona,
+                              "note": event.note, "at": event.created_at.isoformat()} for event in item.events.all()]
+    return payload
+
+
+def scope_filter(config, persona, scope, bookings):
+    """Restrict bookings to the persona's own range: a staff name, an organization, or a resource branch."""
+    column = persona.get("scopeColumn") or 0
+    if not column or not scope:
+        return bookings
+    booking_cfg = config["booking"]
+    resource_columns = config["resources"]["columns"]
+    if column in resource_columns:
+        depth = resource_columns.index(column)
+        prefix_filter = Q(resource__path__startswith=scope + " / ") | Q(resource__path=scope)
+        if depth == 0:
+            return bookings.filter(prefix_filter)
+        return bookings.filter(Q(resource__path__contains=" / " + scope + " / ") | Q(resource__path__endswith=" / " + scope))
+    if column == booking_cfg.get("staffColumn"):
+        return bookings.filter(staff=scope)
+    if column == booking_cfg.get("organizationColumn"):
+        return bookings.filter(organization=scope)
+    return bookings.filter(**{f"attributes__{column_label(config, column)}": scope})
+
+
+def column_label(config, number):
+    labels = config.get("columnLabels") or []
+    return labels[number - 1] if 0 < number <= len(labels) else f"컬럼 {number}"
+
+
+class ResourcesView(SessionView):
+    parser_classes = [JSONParser]
+
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        resources = Resource.objects.filter(upload=upload)
+        if request.query_params.get("all") != "1":
+            resources = resources.filter(active=True)
+        query = (request.query_params.get("q") or "").strip()
+        parent = request.query_params.get("parent")
+        if query:
+            resources = resources.filter(path__icontains=query[:100])
+        elif parent:
+            resources = resources.filter(parent_id=identifier(parent))
+        else:
+            resources = resources.filter(level=0)
+        resources = resources.annotate(children_total=Count("children", distinct=True),
+                                       active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE), distinct=True))
+        items, paging = paginated(resources, request)
+        return Response({**paging, "levels": upload.service_config["resources"]["levels"],
+                         "resources": [resource_payload(item, item.children_total, item.active_bookings) for item in items]})
+
+    def post(self, request, pk):
+        upload = service_upload(request, pk)
+        requested_persona(request, upload.service_config, "manage_resources")
+        data = request.data if isinstance(request.data, dict) else {}
+        name = text_field(data, "name", 300, required=True)
+        parent = None
+        if data.get("parent_id"):
+            parent = get_object_or_404(Resource, pk=identifier(data["parent_id"]), upload=upload)
+        capacity = data.get("capacity")
+        if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 100_000):
+            fail("정원은 1 이상의 정수로 입력해 주세요.")
+        attributes = data.get("attributes") or {}
+        if not isinstance(attributes, dict) or any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 500 for k, v in attributes.items()):
+            fail("속성은 이름과 값이 모두 문자열이어야 합니다.")
+        path = f"{parent.path} / {name}" if parent else name
+        if Resource.objects.filter(upload=upload, path=path).exists():
+            fail("같은 이름의 항목이 이미 있습니다.")
+        resource = Resource.objects.create(upload=upload, parent=parent, level=parent.level + 1 if parent else 0,
+                                           name=name, path=path, capacity=capacity, attributes=attributes)
+        return Response(resource_payload(resource, 0, 0), status=201)
+
+
+class ResourceView(SessionView):
+    parser_classes = [JSONParser]
+
+    def get(self, request, pk, resource_id):
+        upload = service_upload(request, pk)
+        resource = get_object_or_404(Resource, pk=resource_id, upload=upload)
+        payload = resource_payload(resource)
+        payload["ancestors"] = []
+        node = resource.parent
+        while node is not None:
+            payload["ancestors"].insert(0, {"id": str(node.id), "name": node.name})
+            node = node.parent
+        return Response(payload)
+
+    def patch(self, request, pk, resource_id):
+        upload = service_upload(request, pk)
+        requested_persona(request, upload.service_config, "manage_resources")
+        data = request.data if isinstance(request.data, dict) else {}
+        if not data or set(data) - {"name", "capacity", "attributes", "active", "persona"}:
+            fail("이름, 정원, 속성 또는 사용 여부를 입력해 주세요.")
+        with transaction.atomic():
+            resource = get_object_or_404(Resource.objects.select_for_update(), pk=resource_id, upload=upload)
+            if "name" in data:
+                name = text_field(data, "name", 300, required=True)
+                new_path = f"{resource.parent.path} / {name}" if resource.parent_id else name
+                if new_path != resource.path and Resource.objects.filter(upload=upload, path=new_path).exists():
+                    fail("같은 이름의 항목이 이미 있습니다.")
+                old_prefix = resource.path + " / "
+                resource.name, resource.path = name, new_path
+                for child in Resource.objects.filter(upload=upload, path__startswith=old_prefix):
+                    child.path = new_path + " / " + child.path[len(old_prefix):]
+                    child.save(update_fields=["path"])
+            if "capacity" in data:
+                capacity = data["capacity"]
+                if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 100_000):
+                    fail("정원은 1 이상의 정수로 입력해 주세요.")
+                resource.capacity = capacity
+            if "attributes" in data:
+                attributes = data["attributes"]
+                if not isinstance(attributes, dict) or any(not isinstance(k, str) or not isinstance(v, str) or len(v) > 500 for k, v in attributes.items()):
+                    fail("속성은 이름과 값이 모두 문자열이어야 합니다.")
+                resource.attributes = attributes
+            if "active" in data:
+                if type(data["active"]) is not bool:
+                    fail("사용 여부는 참·거짓이어야 합니다.")
+                resource.active = data["active"]
+            resource.save()
+        return Response(resource_payload(resource))
+
+    def delete(self, request, pk, resource_id):
+        upload = service_upload(request, pk)
+        requested_persona(request, upload.service_config, "manage_resources")
+        with transaction.atomic():
+            resource = get_object_or_404(Resource.objects.select_for_update(), pk=resource_id, upload=upload)
+            if Booking.objects.filter(upload=upload, resource__path__startswith=resource.path).exists():
+                resource.active = False
+                resource.save(update_fields=["active"])
+                Resource.objects.filter(upload=upload, path__startswith=resource.path + " / ").update(active=False)
+                return Response({"deleted": False, "deactivated": True,
+                                 "detail": "예약 기록이 있어 삭제하지 않고 사용 중지했습니다."})
+            resource.delete()
+        return Response({"deleted": True, "deactivated": False})
+
+
+def _moment(value, label):
+    if value in (None, ""):
+        return None
+    parsed = iso_datetime(value) if isinstance(value, str) else None
+    if parsed is None:
+        fail(f"{label}은 날짜·시간 형식으로 입력해 주세요.")
+    return parsed if timezone.is_aware(parsed) else timezone.make_aware(parsed)
+
+
+def _date(value, label):
+    if value in (None, ""):
+        return None
+    parsed = iso_date(value) if isinstance(value, str) else None
+    if parsed is None:
+        fail(f"{label}은 YYYY-MM-DD 형식으로 입력해 주세요.")
+    return parsed
+
+
+class SlotsView(SessionView):
+    parser_classes = [JSONParser]
+
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        slots = Slot.objects.filter(upload=upload).select_related("resource")
+        if request.query_params.get("resource"):
+            slots = slots.filter(resource_id=identifier(request.query_params["resource"]))
+        if request.query_params.get("from"):
+            slots = slots.filter(Q(date__gte=_date(request.query_params["from"], "시작일")) | Q(date__isnull=True))
+        if request.query_params.get("available") == "1":
+            today = timezone.localdate()
+            slots = slots.filter(closed=False).filter(Q(date__gte=today) | Q(date__isnull=True, starts_at__gte=timezone.now()))
+        slots = slots.annotate(active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE)))
+        items, paging = paginated(slots, request)
+        return Response({**paging, "slots": [slot_payload(slot, slot.active_bookings) for slot in items]})
+
+    def post(self, request, pk):
+        upload = service_upload(request, pk)
+        requested_persona(request, upload.service_config, "manage_schedule")
+        data = request.data if isinstance(request.data, dict) else {}
+        resource = None
+        if data.get("resource_id"):
+            resource = get_object_or_404(Resource, pk=identifier(data["resource_id"]), upload=upload)
+        elif Resource.objects.filter(upload=upload).exists():
+            fail("일정을 만들 항목을 선택해 주세요.")
+        day = _date(data.get("date"), "날짜")
+        starts, ends = _moment(data.get("starts_at"), "시작 시간"), _moment(data.get("ends_at"), "종료 시간")
+        time_slot = text_field(data, "time_slot", 120)
+        if day is None and starts is None:
+            fail("날짜 또는 시작 시간을 입력해 주세요.")
+        if starts and ends and ends <= starts:
+            fail("종료 시간은 시작 시간 이후여야 합니다.")
+        if day is None:
+            day = timezone.localtime(starts).date()
+        capacity = data.get("capacity")
+        if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 100_000):
+            fail("정원은 1 이상의 정수로 입력해 주세요.")
+        if resource and starts and ends and Slot.objects.filter(upload=upload, resource=resource, starts_at__lt=ends,
+                                                                ends_at__gt=starts).exists():
+            fail("이 항목에 시간이 겹치는 일정이 있습니다.")
+        slot = Slot.objects.create(upload=upload, resource=resource, date=day, starts_at=starts, ends_at=ends,
+                                   time_slot=time_slot, capacity=capacity)
+        return Response(slot_payload(slot, 0), status=201)
+
+
+class SlotView(SessionView):
+    parser_classes = [JSONParser]
+
+    def patch(self, request, pk, slot_id):
+        upload = service_upload(request, pk)
+        requested_persona(request, upload.service_config, "manage_schedule")
+        data = request.data if isinstance(request.data, dict) else {}
+        if not data or set(data) - {"capacity", "closed", "persona"}:
+            fail("정원 또는 마감 여부를 입력해 주세요.")
+        with transaction.atomic():
+            slot = get_object_or_404(Slot.objects.select_for_update(), pk=slot_id, upload=upload)
+            if "capacity" in data:
+                capacity = data["capacity"]
+                if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 100_000):
+                    fail("정원은 1 이상의 정수로 입력해 주세요.")
+                slot.capacity = capacity
+            if "closed" in data:
+                if type(data["closed"]) is not bool:
+                    fail("마감 여부는 참·거짓이어야 합니다.")
+                slot.closed = data["closed"]
+            slot.save()
+        return Response(slot_payload(slot))
+
+    def delete(self, request, pk, slot_id):
+        upload = service_upload(request, pk)
+        requested_persona(request, upload.service_config, "manage_schedule")
+        slot = get_object_or_404(Slot, pk=slot_id, upload=upload)
+        if slot.bookings.filter(status__in=ACTIVE).exists():
+            fail("예약이 있는 일정은 삭제할 수 없습니다. 마감해 주세요.")
+        slot.delete()
+        return Response({"deleted": True})
+
+
+def _capacity_check(upload, resource, slot, day, starts, ends, party):
+    if slot is not None:
+        if slot.closed:
+            fail("마감된 일정입니다.")
+        if slot.capacity is not None:
+            taken = slot.imported_count + slot.bookings.filter(status__in=ACTIVE).count()
+            if taken + 1 > slot.capacity:
+                fail("이 일정은 정원이 가득 찼습니다.")
+        return
+    if resource is None:
+        return
+    capacity = resource.capacity or 1
+    active = Booking.objects.filter(upload=upload, resource=resource, status__in=ACTIVE)
+    if starts and ends:
+        overlapping = active.filter(starts_at__lt=ends, ends_at__gt=starts).count()
+    elif day:
+        overlapping = active.filter(date=day).count()
+    else:
+        return
+    if overlapping + 1 > capacity:
+        fail("선택한 시간에 이 항목은 이미 예약이 가득 찼습니다.")
+
+
+class BookingsView(SessionView):
+    parser_classes = [JSONParser]
+
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        config = upload.service_config
+        persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard")
+        session_key = request.session.session_key or ""
+        bookings = Booking.objects.filter(upload=upload).select_related("resource")
+        if persona["id"] == "booker" or request.query_params.get("mine") == "1":
+            bookings = bookings.filter(created_by_session=session_key) if session_key else bookings.none()
+        elif persona["id"] in ("staff", "org_manager"):
+            scope = (request.query_params.get("scope") or "").strip()
+            if not scope:
+                fail("담당 범위를 선택해 주세요.")
+            bookings = scope_filter(config, persona, scope, bookings)
+        status = request.query_params.get("status")
+        if status:
+            if status not in Booking.Kind.values:
+                fail("알 수 없는 상태입니다.")
+            bookings = bookings.filter(status=status)
+        if request.query_params.get("resource"):
+            resource = get_object_or_404(Resource, pk=identifier(request.query_params["resource"]), upload=upload)
+            bookings = bookings.filter(Q(resource=resource) | Q(resource__path__startswith=resource.path + " / "))
+        if request.query_params.get("from"):
+            bookings = bookings.filter(date__gte=_date(request.query_params["from"], "시작일"))
+        if request.query_params.get("to"):
+            bookings = bookings.filter(date__lte=_date(request.query_params["to"], "종료일"))
+        query = (request.query_params.get("q") or "").strip()[:100]
+        if query:
+            bookings = bookings.filter(Q(booker__icontains=query) | Q(purpose__icontains=query) | Q(resource__path__icontains=query)
+                                       | Q(staff__icontains=query) | Q(organization__icontains=query) | Q(status_label__icontains=query))
+        items, paging = paginated(bookings, request)
+        return Response({**paging, "bookings": [booking_payload(item, session_key) for item in items]})
+
+    def post(self, request, pk):
+        upload = service_upload(request, pk)
+        config = upload.service_config
+        persona = requested_persona(request, config, "make_reservation", "review_reservations")
+        if not config["booking"]["acceptsNew"]:
+            fail("이 서비스는 새 예약을 받지 않습니다.")
+        data = request.data if isinstance(request.data, dict) else {}
+        if not request.session.session_key:
+            request.session.create()
+        booking_cfg = config["booking"]
+        resource = slot = None
+        if data.get("slot_id"):
+            slot = get_object_or_404(Slot.objects.select_related("resource"), pk=identifier(data["slot_id"]), upload=upload)
+            resource = slot.resource
+        elif data.get("resource_id"):
+            resource = get_object_or_404(Resource, pk=identifier(data["resource_id"]), upload=upload, active=True)
+        elif Resource.objects.filter(upload=upload).exists():
+            fail("예약할 항목을 선택해 주세요.")
+        if resource is not None and slot is None and resource.children.filter(active=True).exists():
+            fail("하위 항목까지 선택해 주세요.")
+        day = _date(data.get("date"), "날짜")
+        starts, ends = _moment(data.get("starts_at"), "시작 시간"), _moment(data.get("ends_at"), "종료 시간")
+        time_slot = text_field(data, "time_slot", 120)
+        if slot is not None:
+            day, starts, ends, time_slot = slot.date, slot.starts_at, slot.ends_at, slot.time_slot
+        else:
+            model = booking_cfg["timeModel"]
+            if model in ("date", "date_slot") and day is None:
+                fail("예약 날짜를 선택해 주세요.")
+            if model == "range" and (starts is None or ends is None):
+                fail("시작과 종료 시간을 입력해 주세요.")
+            if model == "start" and starts is None:
+                fail("시작 시간을 입력해 주세요.")
+            if starts and ends and ends <= starts:
+                fail("종료 시간은 시작 시간 이후여야 합니다.")
+            if day is None and starts is not None:
+                day = timezone.localtime(starts).date()
+            moment = starts or (timezone.make_aware(timezone.datetime.combine(day, timezone.datetime.min.time())) if day else None)
+            if moment is not None and persona["id"] == "booker" and moment < timezone.now() - timezone.timedelta(days=1):
+                fail("지난 날짜는 예약할 수 없습니다.")
+        party = data.get("party_size")
+        if party is not None and (type(party) is not int or not 1 <= party <= 100_000):
+            fail("인원은 1 이상의 정수로 입력해 주세요.")
+        booker = text_field(data, "booker", 200, required=bool(booking_cfg.get("bookerColumn")) and persona["id"] == "booker")
+        purpose = text_field(data, "purpose", 2000)
+        with transaction.atomic():
+            if resource is not None:
+                Resource.objects.select_for_update().get(pk=resource.pk)
+            _capacity_check(upload, resource, slot, day, starts, ends, party)
+            status = "requested" if booking_cfg["approvalRequired"] else "approved"
+            if persona["id"] != "booker":
+                status = data.get("status", "approved") if data.get("status") in ("requested", "approved") else "approved"
+            booking = Booking.objects.create(upload=upload, resource=resource, slot=slot, booker=booker,
+                                             created_by_session=request.session.session_key, party_size=party, date=day,
+                                             starts_at=starts, ends_at=ends, time_slot=time_slot, status=status,
+                                             status_label="", purpose=purpose, requested_at=timezone.now())
+            BookingEvent.objects.create(booking=booking, from_status="", to_status=status, persona=persona["id"])
+        return Response(booking_payload(booking, request.session.session_key, events=True), status=201)
+
+
+class BookingView(SessionView):
+    parser_classes = [JSONParser]
+
+    def get(self, request, pk, booking_id):
+        upload = service_upload(request, pk)
+        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations")
+        booking = get_object_or_404(Booking.objects.select_related("resource"), pk=booking_id, upload=upload)
+        session_key = request.session.session_key or ""
+        if persona["id"] == "booker" and booking.created_by_session != session_key:
+            fail("내 예약만 볼 수 있습니다.")
+        return Response(booking_payload(booking, session_key, events=True))
+
+    def patch(self, request, pk, booking_id):
+        upload = service_upload(request, pk)
+        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations")
+        data = request.data if isinstance(request.data, dict) else {}
+        action = data.get("action")
+        if action not in ACTIONS:
+            fail("승인·거절·취소·이용 시작·완료 중 하나를 선택해 주세요.")
+        note = text_field(data, "note", 2000, required=action == "reject")
+        allowed_from, target = ACTIONS[action]
+        session_key = request.session.session_key or ""
+        with transaction.atomic():
+            booking = get_object_or_404(Booking.objects.select_for_update(of=("self",)).select_related("resource"),
+                                        pk=booking_id, upload=upload)
+            if persona["id"] == "booker":
+                if booking.created_by_session != session_key:
+                    fail("내 예약만 바꿀 수 있습니다.")
+                if action != "cancel":
+                    fail("예약자는 취소만 할 수 있습니다.")
+            elif persona["id"] not in REVIEW_PERSONAS:
+                fail("이 역할에서는 예약을 처리할 수 없습니다.")
+            if booking.status not in allowed_from:
+                fail("현재 상태에서는 할 수 없는 처리입니다.")
+            previous = booking.status
+            booking.status = target
+            booking.status_label = ""
+            if note:
+                booking.processing_note = note
+            booking.save(update_fields=["status", "status_label", "processing_note", "updated_at"])
+            BookingEvent.objects.create(booking=booking, from_status=previous, to_status=target, persona=persona["id"], note=note)
+        return Response(booking_payload(booking, session_key, events=True))
+
+
+class BookingStatsView(SessionView):
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        config = upload.service_config
+        persona = requested_persona(request, config, "dashboard", "review_reservations")
+        bookings = Booking.objects.filter(upload=upload)
+        if persona["id"] in ("staff", "org_manager") and request.query_params.get("scope"):
+            bookings = scope_filter(config, persona, request.query_params["scope"].strip(), bookings)
+        counts = dict(bookings.values_list("status").annotate(n=Count("id")).values_list("status", "n"))
+        today = timezone.localdate()
+        top = (bookings.filter(resource__isnull=False).values("resource__path").annotate(n=Count("id")).order_by("-n")[:8])
+        return Response({
+            "total": sum(counts.values()),
+            "counts": {status: counts.get(status, 0) for status in Booking.Kind.values},
+            "upcoming": bookings.filter(status__in=ACTIVE, date__gte=today).count(),
+            "today": bookings.filter(status__in=ACTIVE, date=today).count(),
+            "imported": bookings.filter(source_row__isnull=False).count(),
+            "new": bookings.filter(source_row__isnull=True).count(),
+            "resources": Resource.objects.filter(upload=upload, active=True).count(),
+            "top_resources": [{"path": item["resource__path"], "count": item["n"]} for item in top],
+        })
+
+
+class ScopesView(SessionView):
+    """Distinct values a staff or organization persona can pick as its range."""
+
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        config = upload.service_config
+        persona = requested_persona(request, config)
+        column = persona.get("scopeColumn") or 0
+        if not column:
+            return Response({"column": 0, "label": "", "values": []})
+        label = upload.analysis["columns"][column - 1].get("label") or upload.analysis["columns"][column - 1]["name"]
+        resource_columns = config["resources"]["columns"]
+        booking_cfg = config["booking"]
+        if column in resource_columns:
+            depth = resource_columns.index(column)
+            values = list(Resource.objects.filter(upload=upload, level=depth, active=True).values_list("name", flat=True).distinct()[:200])
+        elif column == booking_cfg.get("staffColumn"):
+            values = list(Booking.objects.filter(upload=upload).exclude(staff="").values_list("staff", flat=True).distinct().order_by("staff")[:200])
+        elif column == booking_cfg.get("organizationColumn"):
+            values = list(Booking.objects.filter(upload=upload).exclude(organization="").values_list("organization", flat=True).distinct().order_by("organization")[:200])
+        else:
+            values = [choice for choice in upload.field_choices.filter(column_number=column, active=True).values_list("value", flat=True)[:200]]
+        return Response({"column": column, "label": label, "values": values})

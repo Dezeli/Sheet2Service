@@ -4,7 +4,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
-from .inference import InferenceError
+from .claude import InferenceError
 from .reservation_understanding import UnderstandingError, summary_lines
 from .reservation_understanding_request import (fingerprint, run_understanding, understanding_approval_summary,
                                                 understanding_request_body)

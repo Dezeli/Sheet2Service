@@ -13,12 +13,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analysis import MAX_BYTES, TableError, analyze
-from .claude import approval_summary, run_inference
-from .inference import InferenceError
-from .preview_request_v2 import PreviewRequestError
+from .claude import InferenceError
 from .managed import ensure_imported, managed_chart_counts, managed_report, rows_page
-from .models import ModelCall, Upload
-from .workflow import auto_config
+from .models import Upload
+from .reservation_service import build_service
+from .reservation_understanding import UnderstandingError, summary_lines
+from .reservation_understanding_request import (fingerprint, run_understanding, understanding_approval_summary,
+                                                understanding_request_body)
 
 
 class BrowserSessionAuthentication(SessionAuthentication):
@@ -113,25 +114,31 @@ class DetailView(SessionView):
         return Response(payload(upload))
 
 
+def landing_persona(config):
+    """Where a freshly generated service opens: the booker side when there is one."""
+    ids = [persona["id"] for persona in config["personas"]]
+    for wanted in ("booker", "viewer", "admin"):
+        if wanted in ids:
+            return wanted
+    return ids[0] if ids else "admin"
+
+
+def service_payload(upload):
+    config = upload.service_config
+    understanding = upload.understanding or {}
+    return {"upload": payload(upload), "service": config,
+            "understanding": {"questions": understanding.get("questions", []),
+                              "summary": summary_lines(understanding, upload.analysis) if understanding else []},
+            "landing": landing_persona(config)}
+
+
 class ServiceView(SessionView):
     def get(self, request, pk):
         upload = owned(request, pk)
-        ensure_imported(upload)
-        call = next((item for item in ModelCall.objects.filter(
-            upload=upload, status=ModelCall.Status.SUCCEEDED).order_by("-completed_at", "-started_at")
-            if isinstance(item.parsed_result, dict) and "preview" in item.parsed_result), None)
-        if call is None:
+        if not upload.service_config:
             raise Http404
-        return Response({
-            "upload": payload(upload),
-            "model_call_id": str(call.id),
-            "result": {
-                "preview": call.parsed_result["preview"],
-                "used_fallback": call.parsed_result.get("used_fallback", False),
-            },
-            "workflow_config": upload.workflow_config,
-            "workflow_required": bool(call.parsed_result.get("user_flows") or call.parsed_result.get("admin_flows")),
-        })
+        ensure_imported(upload)
+        return Response(service_payload(upload))
 
 
 class OriginalView(SessionView):
@@ -173,32 +180,34 @@ class ChartCountsView(SessionView):
         return Response({"row_count": upload.managed_rows.count(), "columns": summaries})
 
 
-class InferenceView(SessionView):
+class GenerateView(SessionView):
+    """GET: what the single understanding call will send. POST: run it and build the service."""
     parser_classes = [JSONParser]
 
     def get(self, request, pk):
+        upload = owned(request, pk)
         try:
-            return Response(approval_summary(owned(request, pk)))
-        except PreviewRequestError as exc:
+            body = understanding_request_body(upload.analysis, file_name=upload.original_name)
+        except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
+        return Response({**understanding_approval_summary(body), "requires_approval": True,
+                         "already_generated": bool(upload.service_config)})
 
     def post(self, request, pk):
         upload = owned(request, pk)
-        if request.data.get("approved") is not True:
+        data = request.data if isinstance(request.data, dict) else {}
+        if data.get("approved") is not True:
             raise ValidationError({"detail": "Claude API 호출 전 명시적 승인이 필요합니다."})
-        approval_note = request.data.get("approval_note")
+        approval_note = data.get("approval_note")
         if not isinstance(approval_note, str) or not approval_note.strip():
             raise ValidationError({"detail": "승인 기록 문구가 필요합니다."})
         try:
-            call, result = run_inference(upload, approval_note=approval_note, approved_at=timezone.now())
-        except (InferenceError, PreviewRequestError) as exc:
+            body = understanding_request_body(upload.analysis, file_name=upload.original_name)
+            if data.get("request_fingerprint") not in (None, fingerprint(body)):
+                raise ValidationError({"detail": "전송 내용이 바뀌었습니다. 다시 확인하고 승인해 주세요."})
+            call, understanding, notes = run_understanding(upload, approval_note=approval_note, approved_at=timezone.now())
+            config, counts = build_service(upload, understanding)
+        except (InferenceError, UnderstandingError, ValueError) as exc:
             raise ValidationError({"detail": str(exc)}) from exc
-        upload.workflow_config = auto_config(upload)
-        upload.save(update_fields=["workflow_config"])
-        return Response({
-            "model_call_id": str(call.id),
-            "status": call.status,
-            "result": result,
-            "usage": call.usage,
-            "landing": "User" if upload.workflow_config["role_selection"]["user"] else "DashBoard",
-        })
+        return Response({"model_call_id": str(call.id), "status": call.status, "usage": call.usage,
+                         "notes": notes, "counts": counts, **service_payload(upload)})

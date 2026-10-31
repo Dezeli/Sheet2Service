@@ -34,7 +34,7 @@ PERSONA_FEATURES = {
 # Features every service of a kind gets even when the model leaves them out.
 REQUIRED_FEATURES = {
     "booker": ("browse_resources", "make_reservation", "my_reservations"),
-    "admin": ("manage_resources", "review_reservations", "manage_data", "dashboard"),
+    "admin": ("manage_resources", "manage_schedule", "review_reservations", "manage_data", "dashboard"),
 }
 SCOPED_PERSONAS = ("staff", "org_manager")
 STATUS_ROLES = ("status", "approval", "cancel_flag", "lottery", "payment")
@@ -140,15 +140,17 @@ def validate_understanding(value, report):
             resources.append(number)
     if len(resources) != len(value.get("resourceColumns") or []):
         notes.append("resourceColumns에서 존재하지 않거나 중복된 컬럼을 제외했습니다.")
-    if not resources and kind != "wide_schedule":
-        resources = [i + 1 for i, role in enumerate(result["columnRoles"]) if role == "resource_group"] + \
-                    [i + 1 for i, role in enumerate(result["columnRoles"]) if role == "resource"]
+    if not resources:
+        wanted = ("wide_resource",) if kind == "wide_schedule" else ("resource_group", "resource")
+        resources = [i + 1 for role_name in wanted for i, role in enumerate(result["columnRoles"]) if role == role_name]
         if resources:
             notes.append("resourceColumns가 비어 있어 컬럼 역할에서 채웠습니다.")
+    resource_role = "wide_resource" if kind == "wide_schedule" else "resource"
+    allowed_resource_roles = ("wide_resource",) if kind == "wide_schedule" else RESOURCE_ROLES
     for number in resources:
-        if result["columnRoles"][number - 1] not in RESOURCE_ROLES:
-            notes.append(f"{number}번 컬럼: 예약 대상으로 지정되어 역할을 resource로 맞췄습니다.")
-            result["columnRoles"][number - 1] = "resource"
+        if result["columnRoles"][number - 1] not in allowed_resource_roles:
+            notes.append(f"{number}번 컬럼: 예약 대상으로 지정되어 역할을 {resource_role}로 맞췄습니다.")
+            result["columnRoles"][number - 1] = resource_role
     result["resourceColumns"] = resources
 
     booking = value.get("booking") if isinstance(value.get("booking"), dict) else {}

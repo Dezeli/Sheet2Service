@@ -48,12 +48,9 @@ class ManagedApiTests(APITestCase):
         renamed = self.mutate(f"choices/{created_choice.data['id']}/", "patch", {"value": "C-new"})
         self.assertEqual(renamed.status_code, 200)
         self.assertEqual(ManagedRow.objects.get(pk=row_id).values, ["C-new", "park"])
-        ModelCall.objects.create(
-            upload=upload, purpose="preview", model="test-model", request_body={"model": "test-model"},
-            approval_note="recorded approval", approved_at=timezone.now(),
-            status=ModelCall.Status.SUCCEEDED,
-            parsed_result={"preview": {"version": 2, "views": [{"template": "table", "columns": [1, 2]}]}},
-        )
+        upload.service_config = {"personas": [{"id": "admin", "title": "관리자", "features": ["manage_data"]}],
+                                 "resources": {"columns": []}}
+        upload.save(update_fields=["service_config"])
         service = self.client.get(self.base + "service/")
         self.assertEqual(service.data["upload"]["analysis"]["row_count"], 3)
         self.assertEqual(service.data["upload"]["analysis"]["preview"][-1]["values"], ["C-new", "park"])

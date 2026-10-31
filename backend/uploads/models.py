@@ -17,8 +17,8 @@ class Upload(models.Model):
     encoding = models.CharField(max_length=16, blank=True)
     analysis = models.JSONField(null=True)
     managed = models.BooleanField(default=False)
-    workflow_config = models.JSONField(null=True, blank=True)
     understanding = models.JSONField(null=True, blank=True)
+    service_config = models.JSONField(null=True, blank=True)
     field_labels = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -45,32 +45,6 @@ class FieldChoice(models.Model):
     class Meta:
         ordering = ["column_number", "value"]
         constraints = [models.UniqueConstraint(fields=["upload", "column_number", "value_hash"], name="unique_field_choice_hash")]
-
-
-class ServiceRequest(models.Model):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        APPROVED = "approved", "Approved"
-        REJECTED = "rejected", "Rejected"
-        SUBMITTED = "submitted", "Submitted"
-        IN_PROGRESS = "in_progress", "In progress"
-        COMPLETED = "completed", "Completed"
-        CANCELLED = "cancelled", "Cancelled"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="service_requests")
-    subject_row = models.ForeignKey(ManagedRow, null=True, on_delete=models.SET_NULL)
-    subject_snapshot = models.TextField()
-    content = models.TextField(blank=True)
-    processing_note = models.TextField(blank=True)
-    approval_mode = models.CharField(max_length=8, choices=[("required", "Required"), ("none", "None")], default="required")
-    status = models.CharField(max_length=16, choices=Status.choices)
-    created_by_session = models.CharField(max_length=40, db_index=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["-created_at"]
 
 
 class Inquiry(models.Model):
@@ -109,35 +83,97 @@ class Notice(models.Model):
         ordering = ["-created_at", "-id"]
 
 
-class ReservationSlot(models.Model):
+class Resource(models.Model):
+    """Something that can be reserved: a room, a device, a course, a court. Nested by level."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="reservation_slots")
-    subject_row = models.ForeignKey(ManagedRow, null=True, on_delete=models.SET_NULL)
-    subject_snapshot = models.TextField()
-    starts_at = models.DateTimeField()
-    ends_at = models.DateTimeField()
-    capacity = models.PositiveIntegerField()
-    closed = models.BooleanField(default=False)
-
-    class Meta:
-        ordering = ["starts_at", "id"]
-        constraints = [
-            models.CheckConstraint(condition=models.Q(capacity__gte=1), name="reservation_slot_capacity_positive"),
-            models.CheckConstraint(condition=models.Q(ends_at__gt=models.F("starts_at")), name="reservation_slot_time_order"),
-        ]
-
-
-class Reservation(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    slot = models.ForeignKey(ReservationSlot, on_delete=models.CASCADE, related_name="reservations")
-    created_by_session = models.CharField(max_length=40, db_index=True)
-    cancelled = models.BooleanField(default=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="resources")
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="children")
+    level = models.PositiveSmallIntegerField(default=0)
+    name = models.CharField(max_length=300)
+    path = models.TextField(db_index=True)  # "기관명 / 상품명" for lookups and sorting
+    source_row = models.ForeignKey(ManagedRow, null=True, blank=True, on_delete=models.SET_NULL)
+    capacity = models.PositiveIntegerField(null=True, blank=True)
+    attributes = models.JSONField(default=dict, blank=True)  # label -> value from the sheet
+    active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at", "-id"]
-        constraints = [models.UniqueConstraint(fields=["slot", "created_by_session"],
-            condition=models.Q(cancelled=False), name="one_active_reservation_per_session_slot")]
+        ordering = ["path"]
+        constraints = [models.UniqueConstraint(fields=["upload", "path"], name="unique_resource_path")]
+
+
+class Slot(models.Model):
+    """A bookable occurrence of a resource: a date, a time range or a labelled time slot."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="slots")
+    resource = models.ForeignKey(Resource, null=True, blank=True, on_delete=models.CASCADE, related_name="slots")
+    date = models.DateField(null=True, blank=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    time_slot = models.CharField(max_length=120, blank=True)
+    capacity = models.PositiveIntegerField(null=True, blank=True)
+    imported_count = models.PositiveIntegerField(default=0)  # attendance already recorded on the sheet
+    source_row = models.ForeignKey(ManagedRow, null=True, blank=True, on_delete=models.SET_NULL)
+    closed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["date", "starts_at", "time_slot", "id"]
+
+
+class Booking(models.Model):
+    class Kind(models.TextChoices):
+        REQUESTED = "requested", "Requested"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        CANCELLED = "cancelled", "Cancelled"
+        IN_USE = "in_use", "In use"
+        COMPLETED = "completed", "Completed"
+        WAITING = "waiting", "Waiting"
+        WON = "won", "Won"
+        LOST = "lost", "Lost"
+        OTHER = "other", "Other"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    upload = models.ForeignKey(Upload, on_delete=models.CASCADE, related_name="bookings")
+    resource = models.ForeignKey(Resource, null=True, blank=True, on_delete=models.SET_NULL, related_name="bookings")
+    slot = models.ForeignKey(Slot, null=True, blank=True, on_delete=models.SET_NULL, related_name="bookings")
+    source_row = models.ForeignKey(ManagedRow, null=True, blank=True, on_delete=models.SET_NULL)
+    booker = models.CharField(max_length=200, blank=True)
+    created_by_session = models.CharField(max_length=40, blank=True, db_index=True)
+    party_size = models.PositiveIntegerField(null=True, blank=True)
+    date = models.DateField(null=True, blank=True, db_index=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    time_slot = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=12, choices=Kind.choices, default=Kind.REQUESTED, db_index=True)
+    status_label = models.CharField(max_length=120, blank=True)  # the sheet's own wording
+    purpose = models.TextField(blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    payment = models.CharField(max_length=120, blank=True)
+    staff = models.CharField(max_length=200, blank=True)
+    organization = models.CharField(max_length=200, blank=True)
+    attributes = models.JSONField(default=dict, blank=True)  # booker attributes and other kept columns
+    processing_note = models.TextField(blank=True)
+    requested_at = models.DateTimeField(null=True, blank=True)  # the sheet's own 등록·신청 일시
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date", "-created_at", "-id"]
+
+
+class BookingEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="events")
+    from_status = models.CharField(max_length=12, blank=True)
+    to_status = models.CharField(max_length=12)
+    persona = models.CharField(max_length=20, blank=True)
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
 
 
 class ModelCall(models.Model):

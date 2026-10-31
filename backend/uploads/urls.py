@@ -1,12 +1,11 @@
 from django.urls import path
 
-from .views import BootstrapView, ChartCountsView, DetailView, InferenceView, OriginalView, RowsView, ServiceView, UploadView
+from .views import BootstrapView, ChartCountsView, DetailView, GenerateView, OriginalView, RowsView, ServiceView, UploadView
 from .admin_views import FieldChoicesView, FieldChoiceView, FieldLabelView, ManagedRowsView, ManagedRowView
-from .workflow_views import WorkflowView
 from .understanding_views import UnderstandingView
-from .request_views import ServiceRequestsView, ServiceRequestView, ServiceRequestStatsView
+from .booking_views import (BookingStatsView, BookingView, BookingsView, ResourceView, ResourcesView, ScopesView,
+                            SlotView, SlotsView)
 from .inquiry_views import InquiriesView, InquiryView, InquiryStatsView
-from .reservation_views import ReservationSlotsView, ReservationSlotView, ReservationsView, ReservationView
 from .notice_views import NoticesView, NoticeView
 
 urlpatterns = [
@@ -14,26 +13,26 @@ urlpatterns = [
     path("uploads/", UploadView.as_view()),
     path("uploads/<uuid:pk>/", DetailView.as_view()),
     path("uploads/<uuid:pk>/service/", ServiceView.as_view()),
-    path("uploads/<uuid:pk>/workflow/", WorkflowView.as_view()),
+    path("uploads/<uuid:pk>/generate/", GenerateView.as_view()),
     path("uploads/<uuid:pk>/understanding/", UnderstandingView.as_view()),
-    path("uploads/<uuid:pk>/service-requests/", ServiceRequestsView.as_view()),
+    path("uploads/<uuid:pk>/resources/", ResourcesView.as_view()),
+    path("uploads/<uuid:pk>/resources/<uuid:resource_id>/", ResourceView.as_view()),
+    path("uploads/<uuid:pk>/slots/", SlotsView.as_view()),
+    path("uploads/<uuid:pk>/slots/<uuid:slot_id>/", SlotView.as_view()),
+    path("uploads/<uuid:pk>/bookings/", BookingsView.as_view()),
+    path("uploads/<uuid:pk>/bookings/stats/", BookingStatsView.as_view()),
+    path("uploads/<uuid:pk>/bookings/scopes/", ScopesView.as_view()),
+    path("uploads/<uuid:pk>/bookings/<uuid:booking_id>/", BookingView.as_view()),
     path("uploads/<uuid:pk>/inquiries/", InquiriesView.as_view()),
-    path("uploads/<uuid:pk>/notices/", NoticesView.as_view()),
-    path("uploads/<uuid:pk>/notices/<uuid:notice_id>/", NoticeView.as_view()),
-    path("uploads/<uuid:pk>/reservation-slots/", ReservationSlotsView.as_view()),
-    path("uploads/<uuid:pk>/reservation-slots/<uuid:slot_id>/", ReservationSlotView.as_view()),
-    path("uploads/<uuid:pk>/reservations/", ReservationsView.as_view()),
-    path("uploads/<uuid:pk>/reservations/<uuid:reservation_id>/", ReservationView.as_view()),
     path("uploads/<uuid:pk>/inquiries/stats/", InquiryStatsView.as_view()),
     path("uploads/<uuid:pk>/inquiries/<uuid:inquiry_id>/", InquiryView.as_view()),
-    path("uploads/<uuid:pk>/service-requests/stats/", ServiceRequestStatsView.as_view()),
-    path("uploads/<uuid:pk>/service-requests/<uuid:request_id>/", ServiceRequestView.as_view()),
+    path("uploads/<uuid:pk>/notices/", NoticesView.as_view()),
+    path("uploads/<uuid:pk>/notices/<uuid:notice_id>/", NoticeView.as_view()),
     path("uploads/<uuid:pk>/managed-rows/", ManagedRowsView.as_view()),
     path("uploads/<uuid:pk>/managed-rows/<uuid:row_id>/", ManagedRowView.as_view()),
     path("uploads/<uuid:pk>/choices/", FieldChoicesView.as_view()),
-    path("uploads/<uuid:pk>/fields/<int:column>/", FieldLabelView.as_view()),
     path("uploads/<uuid:pk>/choices/<uuid:choice_id>/", FieldChoiceView.as_view()),
-    path("uploads/<uuid:pk>/inference/", InferenceView.as_view()),
+    path("uploads/<uuid:pk>/fields/<int:column>/", FieldLabelView.as_view()),
     path("uploads/<uuid:pk>/original/", OriginalView.as_view()),
     path("uploads/<uuid:pk>/rows/", RowsView.as_view()),
     path("uploads/<uuid:pk>/chart-counts/", ChartCountsView.as_view()),

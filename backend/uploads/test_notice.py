@@ -1,20 +1,26 @@
-"""Offline notice lifecycle, isolation and feature composition checks."""
+"""Offline notice lifecycle, isolation and feature gating on the generated service."""
 from rest_framework.test import APIClient, APITestCase
 
-from . import test_feature_selection as fixtures
 from .models import ModelCall, Notice
+from .test_fixtures import ServiceClientMixin
+from .test_reservation_understanding import BOOKINGS, model_answer
 
 
-class NoticeApiTests(APITestCase):
-    mutate = fixtures.FeatureSelectionTests.mutate
-    recorded = fixtures.FeatureSelectionTests.recorded
+def notice_answer():
+    answer = model_answer()
+    for persona in answer["personas"]:
+        if persona["id"] == "admin":
+            persona["features"].append("manage_notices")
+        if persona["id"] == "booker":
+            persona["features"].append("notices")
+    return answer
 
-    def setUp(self):
-        fixtures.FeatureSelectionTests.setUp(self)
-        self.call = self.recorded({"user_flows": [fixtures.flow("notice")],
-                                   "admin_flows": [fixtures.flow("manage_notices")]})
-        self.reference = {"scope": "user", "model_call_id": str(self.call.pk), "index": 0}
-        self.assertEqual(self.mutate("workflow/", {"features": [self.reference]}).status_code, 200)
+
+class NoticeApiTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return notice_answer()
 
     def create(self, **changes):
         return self.mutate("notices/", {"title": "운영 안내", "body": "공지 내용", **changes})
@@ -38,14 +44,13 @@ class NoticeApiTests(APITestCase):
         self.assertEqual(self.mutate(path, {"is_published": False}, "patch").status_code, 200)
         self.assertEqual(self.client.get(self.base + path).status_code, 404)
         self.assertEqual(self.client.get(self.base + "notices/?admin=1").data["count"], 1)
-        republished = self.mutate(path, {"is_published": True}, "patch")
-        self.assertIsNotNone(republished.data["published_at"])
-        self.assertEqual(ModelCall.objects.count(), 1)
+        self.assertIsNotNone(self.mutate(path, {"is_published": True}, "patch").data["published_at"])
+        self.assertEqual(ModelCall.objects.count(), 0)
 
     def test_published_creation_pagination_and_draft_filter(self):
         self.assertEqual(self.create(is_published=True).status_code, 201)
         Notice.objects.bulk_create([Notice(upload=self.upload, title=f"공지 {index}", body="안내",
-            is_published=False) for index in range(21)])
+                                           is_published=False) for index in range(21)])
         user = self.client.get(self.base + "notices/").data
         self.assertEqual(user["count"], 1)
         self.assertTrue(all(item["is_published"] for item in user["notices"]))
@@ -69,22 +74,10 @@ class NoticeApiTests(APITestCase):
         self.assertEqual(anonymous.get(self.base + "notices/?admin=1").status_code, 404)
         self.assertEqual(anonymous.patch(self.base + path, {"is_published": True}, format="json").status_code, 403)
 
-    def test_deselection_preserves_notices_and_reselection_restores_them(self):
+    def test_service_without_the_feature_keeps_but_hides_notices(self):
         self.create(is_published=True)
-        self.mutate("workflow/", {"features": [fixtures.reference("inquiry")]})
+        self.rebuild(model_answer())  # no notices feature on any persona
         self.assertEqual(self.client.get(self.base + "notices/").status_code, 400)
         self.assertEqual(Notice.objects.count(), 1)
-        self.mutate("workflow/", {"features": [self.reference]})
+        self.rebuild(notice_answer())
         self.assertEqual(self.client.get(self.base + "notices/").data["count"], 1)
-
-    def test_notice_pairs_and_composes_with_other_features(self):
-        call = self.recorded({"user_flows": [fixtures.flow("reservation"), fixtures.flow("notice")],
-                              "admin_flows": [fixtures.flow("manage_reservations"), fixtures.flow("manage_notices")]})
-        refs = [{"scope": "admin", "model_call_id": str(call.pk), "index": index} for index in (0, 1)]
-        selected = self.mutate("workflow/", {"features": [*refs, fixtures.reference("inquiry"), fixtures.reference("catalog")]})
-        self.assertEqual(selected.status_code, 200)
-        modules = selected.data["selected"]["modules"]
-        self.assertEqual(len(modules), 4)
-        self.assertEqual(modules[1]["user"]["template"], "notice")
-        self.assertEqual(modules[1]["admin"]["template"], "manage_notices")
-        self.assertEqual(self.create(is_published=True).status_code, 201)

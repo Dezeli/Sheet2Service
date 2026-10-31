@@ -7,15 +7,14 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
 from .models import Notice
-from .views import SessionView, owned
-from .workflow import workflow_module
+from .service_access import has_feature, service_upload
+from .views import SessionView
 
 
 def notice_upload(request, pk):
-    upload = owned(request, pk)
-    module = workflow_module(upload.workflow_config, ("notice",))
-    if not module or module.get("admin", {}).get("template") != "manage_notices":
-        raise ValidationError({"detail": "공지 기능을 먼저 선택해 주세요."})
+    upload = service_upload(request, pk)
+    if not has_feature(upload.service_config, "notices", "manage_notices"):
+        raise ValidationError({"detail": "이 서비스에는 공지 기능이 없습니다."})
     return upload
 
 

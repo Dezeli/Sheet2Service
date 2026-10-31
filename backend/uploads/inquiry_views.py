@@ -9,17 +9,21 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
 from .models import Inquiry, ManagedRow
+from .service_access import has_feature, service_upload
 from .views import SessionView, owned
-from .workflow import workflow_module
 
 
 def inquiry_upload(request, pk):
-    upload = owned(request, pk)
-    config = workflow_module(upload.workflow_config, ("inquiry",)) or {}
-    if config.get("user", {}).get("template") != "inquiry" \
-            or config.get("admin", {}).get("template") != "reply_inquiries":
-        raise ValidationError({"detail": "문의 접수 템플릿을 먼저 선택해 주세요."})
+    upload = service_upload(request, pk)
+    if not has_feature(upload.service_config, "inquiry", "reply_inquiries"):
+        raise ValidationError({"detail": "이 서비스에는 문의 기능이 없습니다."})
     return upload
+
+
+def subject_column(upload):
+    """Inquiries may point at a sheet row; the row is named by its last resource column."""
+    columns = upload.service_config["resources"]["columns"]
+    return columns[-1] if columns else 0
 
 
 def text(value, label, maximum, required=True):
@@ -62,7 +66,7 @@ class InquiriesView(SessionView):
         body = text(data["body"], "내용", 5000)
         row = None
         subject = ""
-        number = workflow_module(upload.workflow_config, ("inquiry",))["user"]["subjectColumn"]
+        number = subject_column(upload)
         if data.get("row_id") is not None:
             if number == 0:
                 raise ValidationError({"detail": "이 문의 양식에는 관련 항목을 연결하지 않습니다."})
@@ -98,9 +102,7 @@ class InquiryView(SessionView):
 
 class InquiryStatsView(SessionView):
     def get(self, request, pk):
-        upload = owned(request, pk)
-        if not upload.workflow_config:
-            raise ValidationError({"detail": "먼저 서비스 기능을 선택해 주세요."})
+        upload = service_upload(request, pk)
         counts = dict(Inquiry.objects.filter(upload=upload).values_list("status").annotate(count=Count("id")))
         return Response({"total": sum(counts.values()),
                          "counts": {status: counts.get(status, 0) for status in Inquiry.Status.values}})
