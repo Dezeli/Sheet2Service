@@ -35,3 +35,6 @@ Thumbs.db
 
 # Local sample sheets (the five committed ones live in docs/samples/)
 /Samples/
+
+# Report drafts stay local
+/docs/midterm-report-*.md
