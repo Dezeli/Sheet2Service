@@ -62,7 +62,7 @@ function App() {
         body: JSON.stringify({ approved: true, request_fingerprint: callSummary.request_fingerprint,
           approval_note: `생성 확인 모달의 서비스 생성 버튼으로 ${callSummary.model} 1회 호출 승인` }),
       });
-      window.location.assign(`/${upload.id}/${generated.landing || 'DashBoard'}`);
+      window.location.assign(`/${upload.id}/summary`);
     } catch (err) {
       setError(err instanceof TypeError ? '서버에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.' : err.message);
     } finally { submitting.current = false; setBusy(false); }

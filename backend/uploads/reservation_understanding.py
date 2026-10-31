@@ -276,6 +276,20 @@ def validate_understanding(value, report):
     if mode == "none" and reservable:
         for persona in personas:
             persona["features"] = [f for f in persona["features"] if f not in ("make_reservation", "my_reservations")]
+    # Notices and inquiries come in pairs: whoever reads them needs someone who writes or answers them.
+    by_id = {persona["id"]: persona for persona in personas}
+    for reader, writer in (("notices", "manage_notices"), ("inquiry", "reply_inquiries")):
+        readers = [p for p in personas if reader in p["features"]]
+        writers = [p for p in personas if writer in p["features"]]
+        if readers and not writers and "admin" in by_id:
+            by_id["admin"]["features"].append(writer)
+            notes.append(f"{reader}를 쓰는 역할이 있어 admin에 {writer}를 보충했습니다.")
+        elif writers and not readers:
+            for persona_id in ("booker", "viewer"):
+                if persona_id in by_id and reader in PERSONA_FEATURES[persona_id]:
+                    by_id[persona_id]["features"].append(reader)
+                    notes.append(f"{writer}가 있어 {persona_id}에 {reader}를 보충했습니다.")
+                    break
     order = {persona_id: index for index, persona_id in enumerate(PERSONAS)}
     result["personas"] = sorted(personas, key=lambda persona: order[persona["id"]])
 

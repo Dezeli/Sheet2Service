@@ -129,6 +129,8 @@ def service_payload(upload):
     return {"upload": payload(upload), "service": config,
             "understanding": {"questions": understanding.get("questions", []),
                               "summary": summary_lines(understanding, upload.analysis) if understanding else []},
+            "counts": {"resources": upload.resources.count(), "slots": upload.slots.count(),
+                       "bookings": upload.bookings.count()},
             "landing": landing_persona(config)}
 
 

@@ -30,7 +30,7 @@ function menuFor(persona, service) {
   if (hasFeature(persona, 'reply_inquiries')) add('inquiries', '문의 답변', 'inquiry');
   if (hasFeature(persona, 'notices')) add('notices', '공지', 'notice');
   if (hasFeature(persona, 'manage_notices')) add('notices_admin', '공지 관리', 'notice');
-  if (hasFeature(persona, 'dashboard')) add('dashboard', '대시보드', 'dashboard');
+  // the dashboard is a top-level screen, not a menu entry of a role
   if (hasFeature(persona, 'manage_data')) { add('fields', '필드 구성', 'features'); add('choices', '선택지 관리', 'features'); add('data', '데이터 관리', 'table'); }
   return items;
 }
@@ -58,19 +58,51 @@ function Dashboard({ uploadId, service, upload, persona, scope }) {
   const report = { ...upload.analysis, columns: upload.analysis.columns.map((column, index) => ({
     ...column, original_label: column.label, label: upload.field_labels?.[String(index + 1)] || column.label })) };
   return <div className="dashboard-workspace">
-    <section className="panel service-summary">
-      <div className="section-title"><h2 className="icon-heading"><SectionIcon name="help" />이 시트에서 읽어낸 것</h2></div>
-      {service.summary.split('\n').filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}
-      <dl className="metrics">
-        <div><dt>예약 대상</dt><dd className="metric-text">{service.resources.levels.join(' › ') || '없음'}</dd></div>
-        <div><dt>예약 방식</dt><dd className="metric-text">{modeLabels[service.booking.mode]}</dd></div>
-        <div><dt>역할</dt><dd className="metric-text">{service.personas.map((item) => item.title).join(', ')}</dd></div>
-      </dl>
-    </section>
     {service.booking.mode !== 'none' && <BookingStats uploadId={uploadId} persona={persona} scope={scope} />}
     {hasFeature(persona, 'reply_inquiries') && <InquiryMetrics uploadId={uploadId} />}
     <div className="dashboard-data"><ServicePreviewV2 uploadId={uploadId} report={report} config={service.dashboard.preview} usedFallback={false} /></div>
   </div>;
+}
+
+/** Shown once, right after generation: what was read from the sheet and what was built from it. */
+function SummaryPage({ uploadId, data }) {
+  const service = data.service;
+  const counts = data.counts || {};
+  const built = [counts.resources ? `${service.resources.levels.at(-1) || '항목'} ${counts.resources.toLocaleString()}개` : null,
+    counts.slots ? `회차 ${counts.slots.toLocaleString()}개` : null,
+    counts.bookings ? `예약 기록 ${counts.bookings.toLocaleString()}건` : null].filter(Boolean);
+  return <main className="service-page summary-page" data-role="dashboard">
+    <header className="service-page-header">
+      <div className="service-topline"><a className="service-brand" href="/">Sheet2Service</a></div>
+      <div className="service-heading-row"><h1 className="icon-heading"><SectionIcon name="help" />시트 분석 결과</h1>
+        <a className="service-source" href={`/api/uploads/${uploadId}/original/`} download>{data.upload.name}</a></div>
+    </header>
+    <section className="panel service-summary">
+      {service.summary.split('\n').filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}
+      <dl className="metrics">
+        <div><dt>예약 대상</dt><dd className="metric-text">{service.resources.levels.join(' › ') || '없음'}</dd></div>
+        <div><dt>예약 방식</dt><dd className="metric-text">{modeLabels[service.booking.mode]}</dd></div>
+        <div><dt>시트에서 만든 것</dt><dd className="metric-text">{built.join(' · ') || '없음'}</dd></div>
+      </dl>
+    </section>
+    <section className="panel">
+      <div className="section-title"><h2>역할과 기능</h2></div>
+      <ul className="persona-list">{service.personas.map((item) => <li key={item.id}>
+        <strong>{item.title}</strong>
+        <span className="muted">{menuFor(item, service).map((entry) => entry.label).join(' · ')}</span>
+        {item.evidence && <small className="muted">{item.evidence}</small>}
+      </li>)}</ul>
+    </section>
+    {data.understanding?.questions?.length > 0 && <section className="panel">
+      <div className="section-title"><h2>확인이 필요한 점</h2></div>
+      <ul className="question-list">{data.understanding.questions.map((question, index) => <li key={index}>{question}</li>)}</ul>
+      <p className="muted">가장 근거 있는 쪽으로 서비스를 만들었습니다. 다르면 관리자 화면에서 항목·일정을 고쳐 쓰면 됩니다.</p>
+    </section>}
+    <div className="summary-actions">
+      <a className="button-link" href={`/${uploadId}/${data.landing}`}>서비스 시작</a>
+      {service.personas.map((item) => <a key={item.id} className="button-link secondary" href={`/${uploadId}/${item.id}`}>{item.title}로 보기</a>)}
+    </div>
+  </main>;
 }
 
 export default function BookingService({ uploadId, page }) {
@@ -91,6 +123,11 @@ export default function BookingService({ uploadId, page }) {
 
   const service = data?.service;
   const personas = service?.personas || [];
+  if (page === 'summary') {
+    if (error) return <main className="service-page"><p className="error" role="alert">{error}</p></main>;
+    if (!data) return <main className="service-page"><p role="status">분석 결과를 불러오는 중입니다.</p></main>;
+    return <SummaryPage uploadId={uploadId} data={data} />;
+  }
   const isDashboard = page === 'DashBoard';
   const persona = isDashboard
     ? (personas.find((item) => item.id === 'admin') || personas.find((item) => hasFeature(item, 'dashboard')) || personas[0])

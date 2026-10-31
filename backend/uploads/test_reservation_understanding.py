@@ -191,3 +191,17 @@ class UnderstandingApiTests(APITestCase):
         provider["content"][0]["text"] = json.dumps(model_answer())
         post_message.return_value = (200, {}, json.dumps(provider))
         self.assertIn("길이 제한", self.post({"approved": True, "approval_note": "approved"}).data["detail"])
+
+
+class PairingTests(SimpleTestCase):
+    def test_notices_and_inquiries_are_paired_between_readers_and_writers(self):
+        report = analyze(BOOKINGS)
+        answer = model_answer()
+        answer["personas"][0]["features"] = ["browse_resources", "notices"]          # booker reads notices
+        answer["personas"][1]["features"] = ["review_reservations", "reply_inquiries"]  # admin answers inquiries
+        understanding, notes = validate_understanding(answer, report)
+        booker = next(p for p in understanding["personas"] if p["id"] == "booker")
+        admin = next(p for p in understanding["personas"] if p["id"] == "admin")
+        self.assertIn("manage_notices", admin["features"])
+        self.assertIn("inquiry", booker["features"])
+        self.assertTrue(any("manage_notices" in note for note in notes))
