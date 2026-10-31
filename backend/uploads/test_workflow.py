@@ -2,7 +2,6 @@
 
 import json
 import tempfile
-from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -46,7 +45,7 @@ class WorkflowSchemaTests(APITestCase):
         report = analyze(b"name,kind\nA,park\nB,room\n")
         schema = build_schema(report)
         self.assertEqual(schema["properties"]["userFlows"]["items"]["properties"]["template"]["enum"],
-                         ["browse_only", "inquiry", "request_review", "request_auto", "notice", "reservation", "rental", "quote"])
+                         ["browse_only", "inquiry", "request_review", "request_auto", "notice", "reservation"])
         self.assertEqual(schema["properties"]["adminFlows"]["items"]["properties"]["subjectColumn"]["enum"],
                          [0, 1, 2])
         with self.assertRaises(ValueError):
@@ -101,26 +100,3 @@ class WorkflowApiTests(APITestCase):
         self.assertEqual(self.client.get(f"/api/uploads/{self.upload.pk}/service/").data["workflow_config"],
                          applied.data["selected"])
         self.assertEqual(APIClient().get(self.base).status_code, 404)
-
-    @patch("uploads.claude._post_message")
-    def test_custom_description_requires_preflight_and_one_approved_call(self, post_message):
-        description = "사용자가 시설을 고르면 관리자가 신청을 승인합니다."
-        preflight = self.post(self.base + "custom-preview/", {"scope": "user", "description": description})
-        self.assertEqual(preflight.status_code, 200)
-        self.assertEqual(preflight.data["planned_call_count"], 1)
-        self.assertEqual(preflight.data["transmitted_data"]["sample_rows"], 0)
-        post_message.assert_not_called()
-        denied = self.post(self.base + "custom-run/", {"scope": "user", "description": description,
-            "approved": False, "approval_note": "no", "request_fingerprint": preflight.data["request_fingerprint"]})
-        self.assertEqual(denied.status_code, 400)
-        post_message.assert_not_called()
-        provider = {"content": [{"type": "text", "text": json.dumps({"version": 1, "flow": user_flow()})}],
-                    "usage": {"input_tokens": 10, "output_tokens": 20}}
-        post_message.return_value = (200, {"request-id": "req_test"}, json.dumps(provider))
-        approved = self.post(self.base + "custom-run/", {"scope": "user", "description": description,
-            "approved": True, "approval_note": "one call approved",
-            "request_fingerprint": preflight.data["request_fingerprint"]})
-        self.assertEqual(approved.status_code, 200)
-        self.assertEqual(approved.data["flow"]["template"], "request_review")
-        post_message.assert_called_once()
-        self.assertEqual(ModelCall.objects.count(), 2)

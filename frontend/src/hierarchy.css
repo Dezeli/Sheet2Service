@@ -39,14 +39,10 @@ h2, h3, h4 { font-family: var(--font-heading); font-weight: 600; line-height: 1.
 .service-page .service-pagination button { min-height: 36px; min-width: 72px; padding: 6px 12px; font-size: .8rem; font-weight: 500; }
 
 /* Upload and selection keep their existing layout with a quieter action palette. */
-.generate-actions button, .selection-navigation button:not(.service-back-button), .workflow-custom button[type=submit] { background: var(--action-accent); border-color: var(--action-accent); color: white; font-weight: 600; }
-.generate-actions button:hover:not(:disabled), .selection-navigation button:not(.service-back-button):hover:not(:disabled), .workflow-custom button[type=submit]:hover:not(:disabled) { background: #125b57; border-color: #125b57; }
+.generate-actions button { background: var(--action-accent); border-color: var(--action-accent); color: white; font-weight: 600; }
+.generate-actions button:hover:not(:disabled) { background: #125b57; border-color: #125b57; }
 .generate-actions .generate-cancel, .generate-actions button[data-intent=secondary] { background: white; color: var(--text-secondary); border-color: var(--action-line); font-weight: 500; }
 .generate-actions .generate-cancel:hover:not(:disabled), .generate-actions button[data-intent=secondary]:hover:not(:disabled) { background: #f2f6f4; border-color: #bdcec8; }
-.workflow-custom button[type=submit] { background: white; color: var(--action-accent); border-color: var(--action-line); font-weight: 500; }
-.workflow-custom button[type=submit]:hover:not(:disabled) { background: #eaf3f0; color: var(--action-accent); border-color: #bdcec8; }
-.workflow-role-option[aria-pressed=true] { background: #e9f3ef; border-color: #82afa2; }
-.workflow-role-option[aria-pressed=true] .workflow-check { background: var(--action-accent); border-color: var(--action-accent); color: white; }
 
 /* Keep filters stable while their values and labels change. */
 .service-page .list-controls { display: grid; gap: 18px; }

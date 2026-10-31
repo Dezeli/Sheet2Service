@@ -18,6 +18,7 @@ from .inference import InferenceError
 from .preview_request_v2 import PreviewRequestError
 from .managed import ensure_imported, managed_chart_counts, managed_report, rows_page
 from .models import ModelCall, Upload
+from .workflow import auto_config
 
 
 class BrowserSessionAuthentication(SessionAuthentication):
@@ -192,9 +193,12 @@ class InferenceView(SessionView):
             call, result = run_inference(upload, approval_note=approval_note, approved_at=timezone.now())
         except (InferenceError, PreviewRequestError) as exc:
             raise ValidationError({"detail": str(exc)}) from exc
+        upload.workflow_config = auto_config(upload)
+        upload.save(update_fields=["workflow_config"])
         return Response({
             "model_call_id": str(call.id),
             "status": call.status,
             "result": result,
             "usage": call.usage,
+            "landing": "User" if upload.workflow_config["role_selection"]["user"] else "DashBoard",
         })

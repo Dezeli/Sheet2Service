@@ -83,6 +83,10 @@ class InferenceApiTests(APITestCase):
         self.assertEqual(response.data["status"], ModelCall.Status.SUCCEEDED)
         self.assertEqual(response.data["result"]["preview"]["views"][0]["template"], "table")
         self.assertFalse(response.data["result"]["used_fallback"])
+        # No selection step: the service is configured from the recommendation right away.
+        self.assertEqual(response.data["landing"], "DashBoard")
+        config = Upload.objects.get(pk=self.upload_id).workflow_config
+        self.assertEqual(config["role_selection"], {"dashboard": ["csv_statistics"], "user": [], "admin": ["manage_catalog"]})
         record = ModelCall.objects.get()
         self.assertEqual(record.provider_request_id, "req_synthetic")
         self.assertEqual(record.usage["input_tokens"], 12)

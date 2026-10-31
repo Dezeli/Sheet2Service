@@ -1,13 +1,7 @@
 """Finite user/admin flow templates and offline model-output validation."""
 
-import hashlib
-import json
-
-from django.conf import settings
-
-from .inference import InferenceError, json_text
 from .models import ModelCall
-from .template_registry import IMPLEMENTED, PLANNED, REGISTRY, TEMPLATES, describe
+from .template_registry import DASHBOARD, IMPLEMENTED, describe
 
 
 FLOW_TEMPLATES = {
@@ -89,14 +83,6 @@ def normalize_flow(value, scope, report):
         steps = ["게시된 공지 목록 조회", "공지 내용 확인"]
     elif value["template"] == "manage_notices":
         steps = ["공지 작성·수정", "게시·게시 해제"]
-    elif value["template"] == "rental":
-        steps = ["항목·수량 선택·대여 신청", "내 상태 확인·대여 시작 전 취소"]
-    elif value["template"] == "manage_rentals":
-        steps = ["항목별 재고 설정·승인·거절", "대여 시작·전량 반납 처리"]
-    elif value["template"] == "quote":
-        steps = ["항목·요청 조건 제출", "견적 확인·수락·거절·진행 상태 조회"]
-    elif value["template"] == "manage_quotes":
-        steps = ["견적 초안 작성·전달·요청 거절", "수락 후 진행·완료 처리"]
     return {"template": value["template"], "subjectColumn": value["subjectColumn"],
             "steps": [step.strip() for step in steps], **({"titles": titles} if titles else {})}
 
@@ -262,156 +248,24 @@ def selected_config(user, admin):
     return config
 
 
-def custom_request_body(report, scope, description):
-    if scope not in FLOW_TEMPLATES:
-        raise ValueError("유저 또는 관리자 플로우를 선택해 주세요.")
-    if not isinstance(description, str) or not 10 <= len(description.strip()) <= MAX_DESCRIPTION:
-        raise ValueError("원하는 흐름을 10~500자로 설명해 주세요.")
-    columns = [{"number": number, "name": column["name"][:160], "type": column["candidate"]}
-               for number, column in enumerate(report["columns"], 1)]
-    content = {"scope": scope, "user_description": description.strip(), "columns": columns,
-               "row_count": report["row_count"], "template_registry": list(TEMPLATES)}
-    def outcome(properties):
-        return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
-    schema = {"type": "object", "properties": {
-        "version": {"type": "integer", "enum": [1]}, "result": {"anyOf": [
-            outcome({"status": {"type": "string", "enum": ["supported"]}, "flow": flow_schema(scope, report)}),
-            outcome({"status": {"type": "string", "enum": ["unimplemented"]},
-                     "template": {"type": "string", "enum": list(PLANNED)}}),
-            outcome({"status": {"type": "string", "enum": ["unsupported"]}}),
-        ]},
-    }, "required": ["version", "result"], "additionalProperties": False}
-    return {
-        "model": getattr(settings, "ANTHROPIC_MODEL", "claude-sonnet-5") or "claude-sonnet-5",
-        "max_tokens": 600,
-        "system": ("Classify the entire user's feature request against the provided template_registry. "
-                   "Return supported only if the complete request fits an implemented template's stated capabilities. "
-                   "Provide titles.user and titles.admin as concise one-line labels including the actual subject and action inferred from CSV columns or the user's description. "
-                   "For example: 체육시설 이용 신청 / 체육시설 신청 승인, 상품 문의 접수 / 상품 문의 답변. Never use a vague 이용 신청 label alone or invent a domain. Keep each title within 48 characters. "
-                   "Return unimplemented for a matching planned template, or unsupported if no registry template can fulfill it. "
-                   "Do not substitute an approximate implemented template that omits requested capabilities. "
-                   "Simple reservation applications can use request_review; time-slot, capacity and conflict enforcement requires reservation. "
-                   "reservation/manage_reservations is implemented: admin creates future non-overlapping slots per CSV item, changes capacity or closes booking; "
-                   "users view remaining capacity, book one seat, view own reservations and cancel before start. "
-                   "Capacity overflow and overlapping bookings by the same user are rejected. Recurrence, booking approval and waitlists are unimplemented. "
-                   "notice/manage_notices supports separate plain-text announcements: admin creates and edits title/body, publishes or unpublishes; "
-                   "users see only published notices. Scheduled publication, attachments and notifications are unsupported. "
-                   "rental/manage_rentals supports per-item integer stock, quantity requests, approval/rejection, handover and full return. "
-                   "Requests do not hold stock; approval reserves stock, cancellation before handover or full return releases it. "
-                   "Users view own status and cancel before handover; admins set stock and intake, manage lifecycle and processing notes. "
-                   "Rental dates, partial returns, fees, deposits and payments are unsupported. "
-                   "quote/manage_quotes supports per-item conditions, manually drafted amount/currency/proposal, sending an immutable offer, "
-                   "user acceptance/decline/cancellation before work starts, and admin start/completion after acceptance. "
-                   "Supported currencies are KRW/USD/EUR/JPY; no conversion, automatic pricing, offer revision after sending, or payment. "
-                   "Payments, notifications, attachments and custom form fields are unsupported. "
-                   "A CSV is one table, so do not claim that applications already exist. "
-                   "Requests are a new entity when the template supports them. "
-                   "inquiry/reply_inquiries supports title and body submission, own inquiry and answer lookup, "
-                   "admin answers, and received/in_progress/resolved states only. "
-                   "subjectColumn 0 means general inquiry; positive columns optionally link a catalog item. "
-                   "Only inquiry/reply_inquiries may use subjectColumn 0; all other templates require a permitted positive CSV column number. "
-                   "Return JSON only; never generate code, SQL, or unsupported actions."),
-        "messages": [{"role": "user", "content": json_text(content)}],
-        "output_config": {"format": {"type": "json_schema", "schema": schema}},
-    }
-
-
-def custom_fingerprint(body):
-    return hashlib.sha256(json_text(body).encode("utf-8")).hexdigest()
-
-
-def custom_approval_summary(upload, scope, description):
-    body = custom_request_body(upload.analysis, scope, description)
-    request_bytes = len(json_text(body).encode("utf-8"))
-    if body["model"] == "claude-sonnet-5":
-        low = (request_bytes / 3 * 2 + body["max_tokens"] * 10) / 1_000_000
-        high = (request_bytes * 0.75 * 2 + body["max_tokens"] * 10) / 1_000_000
-        cost_note = f"예상 비용(출력 600토큰 가정): 약 US${low:.3f}~${high:.3f}. 실제 사용량에 따라 달라집니다."
-        priced = True
-    else:
-        cost_note = "모델 단가를 확인할 수 없어 예상 비용을 계산하지 못했습니다."
-        priced = False
-    return {
-        "purpose": "추가 기능 요청을 등록된 템플릿과 비교해 지원·미구현·미지원 여부를 확인",
-        "model": body["model"], "planned_call_count": 1, "automatic_retries": 0,
-        "max_output_tokens": body["max_tokens"], "request_fingerprint": custom_fingerprint(body),
-        "transmitted_data": {"user_description": description.strip(),
-                             "column_names_and_types": [column["name"][:160] for column in upload.analysis["columns"]],
-                             "row_count": upload.analysis["row_count"], "sample_rows": 0,
-                             "original_csv_file": False, "request_bytes": request_bytes},
-        "cost_note": cost_note, "pricing_estimate_available": priced,
-    }
-
-
-def parse_custom_response(raw, scope, report):
-    if not isinstance(raw, str) or len(raw.encode("utf-8")) > 8_000:
-        raise ValueError("플로우 응답이 너무 깁니다.")
-    def unique_object(pairs):
-        value = {}
-        for key, item in pairs:
-            if key in value:
-                raise ValueError("중복된 플로우 응답 항목이 있습니다.")
-            value[key] = item
-        return value
-    def invalid_constant(_):
-        raise ValueError("유효하지 않은 숫자입니다.")
-    value = json.loads(raw, object_pairs_hook=unique_object,
-                       parse_constant=invalid_constant)
-    if not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] != 1:
-        raise ValueError("플로우 응답 형식이 올바르지 않습니다.")
-    # Accept the prior format for stored fixtures and in-flight requests.
-    if set(value) == {"version", "flow"}:
-        result = {"status": "supported", "flow": normalize_flow(value["flow"], scope, report)}
-    elif set(value) == {"version", "result"} and isinstance(value["result"], dict):
-        result = value["result"]
-    else:
-        raise ValueError("기능 응답 형식이 올바르지 않습니다.")
-    status = result.get("status")
-    if status == "supported" and set(result) == {"status", "flow"}:
-        result = {"status": status, "flow": normalize_flow(result["flow"], scope, report)}
-        template = result["flow"]["template"]
-        if scope == "admin":
-            template = next(user for user, admin in COMPATIBLE.items() if admin == template)
-        result["template"] = template
-        result["message"] = f'{REGISTRY[template]["name"]} 기능을 추가할 수 있습니다.'
-    elif status == "unimplemented" and set(result) == {"status", "template"} and result["template"] in PLANNED:
-        result = {**result, "message": f'{REGISTRY[result["template"]]["name"]} 기능은 아직 미구현이라 선택할 수 없습니다.'}
-    elif status == "unsupported" and set(result) == {"status"}:
-        result = {"status": status, "message": "현재 지원하는 템플릿으로는 이 기능을 제공할 수 없습니다."}
-    else:
-        raise ValueError("등록된 템플릿의 구현 상태와 맞지 않는 응답입니다.")
-    return result
-
-
-def run_custom_suggestion(upload, scope, description, approval_note, approved_at):
-    """Exactly one network call, only after the caller checks explicit approval."""
-    from .call_records import finish_call, start_call
-    from .claude import _extract_text, _post_message
-
-    body = custom_request_body(upload.analysis, scope, description)
-    call = start_call(upload=upload, purpose=f"{scope} 맞춤 플로우 후보 제안", request_body=body,
-                      approval_note=approval_note, approved_at=approved_at)
-    response_text = ""
-    http_status = None
-    headers = {}
-    usage = {}
-    try:
-        http_status, headers, response_text = _post_message(body)
-        provider = json.loads(response_text)
-        usage = provider.get("usage", {})
-        if not 200 <= http_status < 300:
-            raise InferenceError("Claude API 호출이 실패했습니다.")
-        result = parse_custom_response(_extract_text(provider), scope, upload.analysis)
-        parsed = {"custom_result": result}
-        if result["status"] == "supported":
-            parsed[f"{scope}_flows"] = [result["flow"]]
-        finish_call(call, status=ModelCall.Status.SUCCEEDED, response_body=response_text,
-                    http_status=http_status, provider_request_id=headers.get("request-id", ""),
-                    parsed_result=parsed, usage=usage)
-        return call, result
-    except (ValueError, InferenceError) as exc:
-        if ModelCall.objects.filter(pk=call.pk, status=ModelCall.Status.STARTED).exists():
-            finish_call(call, status=ModelCall.Status.FAILED, response_body=response_text,
-                        http_status=http_status, provider_request_id=headers.get("request-id", ""),
-                        usage=usage, error_type=exc.__class__.__name__, error_message=str(exc))
-        raise
+def auto_config(upload):
+    """Every recommended feature, one reception mode, data management and matching dashboards."""
+    modules = []
+    groups = set()
+    for option in feature_catalog(upload)["recommended"]:
+        group = "reception" if option["template"] in ("request_review", "request_auto") else option["template"]
+        if group in groups:
+            continue
+        groups.add(group)
+        modules.append({**selected_config(option["user"], option["admin"]), "selection": option["reference"]})
+    templates = {module["user"]["template"] for module in modules}
+    dashboard = ["csv_statistics"]
+    if templates & {"request_review", "request_auto"}:
+        dashboard.append("request_statistics")
+    if "inquiry" in templates:
+        dashboard.append("inquiry_statistics")
+    return {**(modules[0] if modules else {"version": 1}), "modules": modules,
+            "role_selection": {"dashboard": [item["template"] for item in DASHBOARD if item["template"] in dashboard],
+                               "user": [module["user"]["template"] for module in modules],
+                               "admin": ["manage_catalog", *[module["admin"]["template"] for module in modules
+                                                            if module["user"]["template"] != "browse_only"]]}}

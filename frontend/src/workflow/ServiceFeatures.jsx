@@ -7,8 +7,6 @@ import AdminPreview from '../admin/AdminPreview';
 import ServicePreviewV2 from '../preview/ServicePreviewV2';
 import ReservationPage from '../reservation/ReservationPage';
 import NoticePage from '../notice/NoticePage';
-import RentalPage from '../rental/RentalPage';
-import QuotePage from '../quote/QuotePage';
 import SectionIcon from '../components/SectionIcon';
 
 export default function ServiceFeatures({ uploadId, page, service, requestMetrics }) {
@@ -55,10 +53,6 @@ export default function ServiceFeatures({ uploadId, page, service, requestMetric
       ? dataSelected
         ? <AdminPreview key={activeTemplate} uploadId={uploadId} report={report} dashboardConfig={service.result.preview} workflowConfig={catalog || null}
             embedded onFieldLabelsChange={setFieldLabels} titleColumns={modules.map((item) => item.user.subjectColumn)} viewTemplate={activeTemplate === 'data' ? 'records' : activeTemplate} />
-        : module.user.template === 'quote'
-          ? <QuotePage key="quote" uploadId={uploadId} config={module} admin />
-        : module.user.template === 'rental'
-          ? <RentalPage key="rental" uploadId={uploadId} config={module} admin />
         : module.user.template === 'notice'
           ? <NoticePage key="notice" uploadId={uploadId} config={module} admin />
         : module.user.template === 'reservation'
@@ -66,10 +60,6 @@ export default function ServiceFeatures({ uploadId, page, service, requestMetric
         : module.user.template === 'inquiry'
           ? <InquiryPage key="inquiry" uploadId={uploadId} config={module} admin />
           : <RequestManagement key={module.user.template} uploadId={uploadId} title={module.admin.title} />
-      : module.user.template === 'quote'
-        ? <QuotePage key="quote" uploadId={uploadId} config={module} />
-      : module.user.template === 'rental'
-        ? <RentalPage key="rental" uploadId={uploadId} config={module} />
       : module.user.template === 'notice'
         ? <NoticePage key="notice" uploadId={uploadId} config={module} />
       : module.user.template === 'reservation'
