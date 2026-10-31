@@ -19,6 +19,8 @@ from .views import SessionView
 PAGE = 20
 ACTIVE = ("requested", "approved", "in_use", "waiting", "won")
 # action -> (allowed from, to). Reviewers may take every action; bookers only cancel their own.
+PAID = Q(payment__iregex=r"(완료|납부|결제됨|^y$|^yes$|^paid$|^true$)")
+PAYMENT_ACTIONS = {"mark_paid": "결제완료", "mark_unpaid": "미결제"}
 ACTIONS = {
     "approve": (("requested", "waiting"), "approved"),
     "reject": (("requested", "waiting"), "rejected"),
@@ -362,7 +364,7 @@ class BookingsView(SessionView):
     def get(self, request, pk):
         upload = service_upload(request, pk)
         config = upload.service_config
-        persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard")
+        persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard", "manage_payments")
         session_key = request.session.session_key or ""
         bookings = Booking.objects.filter(upload=upload).select_related("resource")
         if persona["id"] == "booker" or request.query_params.get("mine") == "1":
@@ -380,6 +382,9 @@ class BookingsView(SessionView):
         if request.query_params.get("resource"):
             resource = get_object_or_404(Resource, pk=identifier(request.query_params["resource"]), upload=upload)
             bookings = bookings.filter(Q(resource=resource) | Q(resource__path__startswith=resource.path + " / "))
+        payment = request.query_params.get("payment")
+        if payment in ("paid", "unpaid"):
+            bookings = bookings.filter(PAID) if payment == "paid" else bookings.exclude(PAID)
         if request.query_params.get("from"):
             bookings = bookings.filter(date__gte=_date(request.query_params["from"], "시작일"))
         if request.query_params.get("to"):
@@ -456,7 +461,7 @@ class BookingView(SessionView):
 
     def get(self, request, pk, booking_id):
         upload = service_upload(request, pk)
-        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations")
+        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments")
         booking = get_object_or_404(Booking.objects.select_related("resource"), pk=booking_id, upload=upload)
         session_key = request.session.session_key or ""
         if persona["id"] == "booker" and booking.created_by_session != session_key:
@@ -465,9 +470,23 @@ class BookingView(SessionView):
 
     def patch(self, request, pk, booking_id):
         upload = service_upload(request, pk)
-        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations")
+        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments")
         data = request.data if isinstance(request.data, dict) else {}
         action = data.get("action")
+        if action in PAYMENT_ACTIONS:
+            if "manage_payments" not in persona["features"]:
+                fail("이 역할에서는 결제를 처리할 수 없습니다.")
+            note = text_field(data, "note", 2000)
+            with transaction.atomic():
+                booking = get_object_or_404(Booking.objects.select_for_update(of=("self",)).select_related("resource"),
+                                            pk=booking_id, upload=upload)
+                booking.payment = PAYMENT_ACTIONS[action]
+                if note:
+                    booking.processing_note = note
+                booking.save(update_fields=["payment", "processing_note", "updated_at"])
+                BookingEvent.objects.create(booking=booking, from_status=booking.status, to_status=booking.status,
+                                            persona=persona["id"], note=PAYMENT_ACTIONS[action] + (f" · {note}" if note else ""))
+            return Response(booking_payload(booking, request.session.session_key or "", events=True))
         if action not in ACTIONS:
             fail("승인·거절·취소·이용 시작·완료 중 하나를 선택해 주세요.")
         note = text_field(data, "note", 2000, required=action == "reject")

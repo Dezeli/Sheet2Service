@@ -34,7 +34,7 @@ export const statusTone = {
 export const featureLabels = {
   browse_resources: '찾기', make_reservation: '예약하기', my_reservations: '내 예약', inquiry: '문의', notices: '공지',
   manage_resources: '관리', manage_schedule: '일정·정원', review_reservations: '예약 관리', reply_inquiries: '문의 답변',
-  manage_notices: '공지 관리', manage_data: '데이터 관리', dashboard: '대시보드',
+  manage_notices: '공지 관리', manage_data: '데이터 관리', dashboard: '대시보드', manage_payments: '결제 확인',
 };
 
 export const personaIcons = { booker: 'user', admin: 'admin', staff: 'request', org_manager: 'admin', finance: 'analysis', viewer: 'user' };

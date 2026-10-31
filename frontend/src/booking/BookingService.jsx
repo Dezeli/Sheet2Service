@@ -29,6 +29,7 @@ function menuFor(persona, service) {
   if (hasFeature(persona, 'inquiry')) add('inquiry', '문의', 'inquiry');
   if (hasFeature(persona, 'reply_inquiries')) add('inquiries', '문의 답변', 'inquiry');
   if (hasFeature(persona, 'notices')) add('notices', '공지', 'notice');
+  if (hasFeature(persona, 'manage_payments')) add('payments', '결제 확인', 'analysis');
   if (hasFeature(persona, 'manage_notices')) add('notices_admin', '공지 관리', 'notice');
   // the dashboard is a top-level screen, not a menu entry of a role
   if (hasFeature(persona, 'manage_data')) { add('fields', '필드 구성', 'features'); add('choices', '선택지 관리', 'features'); add('data', '데이터 관리', 'table'); }
@@ -168,6 +169,7 @@ export default function BookingService({ uploadId, page }) {
           {active === 'browse' && <ResourceBrowser uploadId={uploadId} service={service} persona={persona} csrf={csrf} onReserved={() => setRefresh((n) => n + 1)} />}
           {active === 'mine' && <MyBookings uploadId={uploadId} persona={persona} csrf={csrf} refreshKey={refresh} />}
           {active === 'review' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} />}
+          {active === 'payments' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} mode="payments" />}
           {active === 'slots' && <SlotAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}
           {active === 'resources' && <ResourceAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}
           {active === 'inquiry' && <InquiryPage uploadId={uploadId} subjectColumn={service.resources.columns.at(-1) || 0} />}

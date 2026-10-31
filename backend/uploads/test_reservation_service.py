@@ -252,3 +252,37 @@ class SingleResourceTests(MaterializeMixin, TestCase):
         bell = Slot.objects.get(upload=upload, resource__name="울산대종 타종1회차")
         self.assertEqual((bell.date, timezone.localtime(bell.starts_at).hour, timezone.localtime(bell.ends_at).hour),
                          (date(2024, 1, 1), 12, 13))
+
+
+CODED = ("예약신청번호,시설코드,예약시작일,예약종료일,승인여부,결제여부,금액\n"
+         "1,pt_room,2026-06-26,2026-06-30,Y,N,0\n"
+         "2,edu_center,2026-06-01,2026-06-01,Y,Y,325710\n"
+         "3,pt_room,2026-07-02,2026-07-02,N,N,0\n"
+         "4,medium_room,2026-07-05,2026-07-05,Y,N,120000\n"
+         "5,edu_center,2026-07-10,2026-07-11,Y,Y,200000\n").encode("utf-8")
+
+
+def coded_answer():
+    return model_answer(sheetKind="booking_records", subject="회의실·교육시설", resourceColumns=[2],
+                        columnRoles=["identifier", "resource", "start", "end", "approval", "payment", "amount"], columnEvidence=[""] * 7,
+                        booking={"mode": "approval", "statusColumn": 0, "stateValues": [], "stateKinds": [], "evidence": ""},
+                        personas=[{"id": "finance", "title": "결제 담당자", "scopeColumn": 0, "features": ["review_reservations"], "evidence": ""}],
+                        valueLabels=[{"column": 2, "value": "pt_room", "label": "PT실(추정)"}, {"column": 2, "value": "edu_center", "label": "교육센터"},
+                                     {"column": 2, "value": "nowhere", "label": "없는 값"}, {"column": 5, "value": "Y", "label": "승인"}],
+                        questions=[])
+
+
+@override_settings(ANTHROPIC_API_KEY="")
+class CodeLabelTests(MaterializeMixin, TestCase):
+    def test_code_values_get_display_names_and_keep_the_code(self):
+        upload = self.upload(CODED, coded_answer())
+        config, counts = build_service(upload)
+        self.assertEqual([(item["value"], item["label"]) for item in config["valueLabels"]],
+                         [("pt_room", "PT실(추정)"), ("edu_center", "교육센터")])  # column 5 is not a resource or status column
+        self.assertEqual(counts, {"resources": 3, "bookings": 5})
+        pt = Resource.objects.get(upload=upload, name="PT실(추정)")
+        self.assertEqual(pt.attributes, {"원본 코드": "pt_room"})
+        self.assertEqual(Booking.objects.filter(upload=upload, resource=pt).count(), 2)
+        self.assertEqual(Resource.objects.get(upload=upload, name="medium_room").attributes, {})
+        finance = next(p for p in config["personas"] if p["id"] == "finance")
+        self.assertEqual(finance["features"], ["manage_payments"])  # review_reservations is not a finance feature

@@ -142,6 +142,7 @@ def derive_service(understanding, report):
             "attributeColumns": by_role.get("booker_attribute", []),
         },
         "personas": [dict(persona) for persona in understanding["personas"]],
+        "valueLabels": list(understanding.get("valueLabels", [])),
         "dashboard": {"preview": derive_dashboard(understanding, report, by_role)},
         "notes": [],
     }
@@ -302,22 +303,36 @@ def _label(report, number):
     return column.get("label") or column["name"]
 
 
-def _resource_tree(upload, rows, columns, labels, *, catalog):
+def _display_map(config):
+    return {(item["column"], item["value"]): item["label"] for item in config.get("valueLabels", [])}
+
+
+def _names(values, columns, display):
+    """The resource path for one row, with code-like values shown by their display name."""
+    result = []
+    for number in columns:
+        raw = _text(_value(values, number)) or "미지정"
+        result.append(display.get((number, raw), raw))
+    return result
+
+
+def _resource_tree(upload, rows, columns, labels, *, catalog, display=None):
     """Resources for every distinct prefix of the resource columns; catalog rows also carry attributes."""
+    display = display or {}
     nodes = {}
     order = []
     for row in rows:
-        names = [_text(_value(row.values, number)) for number in columns]
-        if not names or not names[-1] and not any(names):
+        raws = [_text(_value(row.values, number)) for number in columns]
+        if not raws or not raws[-1] and not any(raws):
             continue
+        names = _names(row.values, columns, display)
         prefix = []
         for level, name in enumerate(names):
-            if not name:
-                name = "미지정"
             prefix.append(name)
             key = tuple(prefix)
             if key not in nodes:
-                nodes[key] = {"level": level, "name": name, "row": None}
+                nodes[key] = {"level": level, "name": name, "row": None,
+                              "code": raws[level] if display.get((columns[level], raws[level])) else ""}
                 order.append(key)
             if catalog and level == len(names) - 1:
                 nodes[key]["row"] = row
@@ -325,7 +340,7 @@ def _resource_tree(upload, rows, columns, labels, *, catalog):
     for key in order:
         node = nodes[key]
         parent = created.get(key[:-1])
-        attributes = {}
+        attributes = {"원본 코드": node["code"]} if node["code"] else {}
         capacity = None
         if node["row"] is not None:
             values = node["row"].values
@@ -444,7 +459,8 @@ def apply_service(upload, config=None):
         elif not columns:
             return dict(counts)
         else:
-            tree = _resource_tree(upload, rows, columns, labels, catalog=kind in ("resource_catalog", "policy"))
+            display = _display_map(config)
+            tree = _resource_tree(upload, rows, columns, labels, catalog=kind in ("resource_catalog", "policy"), display=display)
             counts["resources"] = len(tree)
             if kind in ("resource_catalog", "policy"):
                 return dict(counts)
@@ -452,10 +468,7 @@ def apply_service(upload, config=None):
         def leaf_for(values):
             if implicit is not None:
                 return implicit
-            names_ = []
-            for number in columns:
-                names_.append(_text(_value(values, number)) or "미지정")
-            return tree.get(tuple(names_))
+            return tree.get(tuple(_names(values, columns, display)))
 
         if kind == "schedule_slots":
             slots = []

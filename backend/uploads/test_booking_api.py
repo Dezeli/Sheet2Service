@@ -166,3 +166,24 @@ class SlotsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(new_slot.status_code, 201)
         self.assertEqual(self.mutate(f"slots/{new_slot.data['id']}/", {"persona": "admin"}, "delete").data, {"deleted": True})
         self.assertEqual(self.mutate("slots/", {"persona": "booker", "resource_id": str(slot.resource_id), "date": future(10)}).status_code, 400)
+
+
+class PaymentApiTests(ServiceClientMixin, APITestCase):
+    from .test_reservation_service import CODED as csv_data  # noqa: F401
+
+    def answer(self):
+        from .test_reservation_service import coded_answer
+        return coded_answer()
+
+    def test_finance_sees_payments_and_marks_them_but_cannot_approve(self):
+        unpaid = self.client.get(self.base + "bookings/?persona=finance&payment=unpaid").data
+        self.assertEqual(unpaid["count"], 3)
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=finance&payment=paid").data["count"], 2)
+        booking = unpaid["bookings"][0]["id"]
+        self.assertEqual(self.mutate(f"bookings/{booking}/", {"persona": "finance", "action": "approve"}, "patch").status_code, 400)
+        paid = self.mutate(f"bookings/{booking}/", {"persona": "finance", "action": "mark_paid", "note": "현금"}, "patch")
+        self.assertEqual(paid.status_code, 200, paid.data)
+        self.assertEqual(paid.data["payment"], "결제완료")
+        self.assertEqual(paid.data["events"][-1]["note"], "결제완료 · 현금")
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=finance&payment=paid").data["count"], 3)
+        self.assertEqual(self.mutate(f"bookings/{booking}/", {"persona": "booker", "action": "mark_paid"}, "patch").status_code, 400)

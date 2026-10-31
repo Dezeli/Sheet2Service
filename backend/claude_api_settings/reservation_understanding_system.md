@@ -44,10 +44,14 @@
 
 - `staff`: 담당자 컬럼이 있으면 그 사람은 자기 담당 대상의 예약만 보고 처리한다. `scopeColumn`에 담당자 컬럼 번호를 적는다. 범위 컬럼은 담당자·기관·대상 묶음·대상 역할이어야 하며 전화번호 같은 연락처는 범위가 아니다.
 - `org_manager`: 여러 기관·부서의 예약이 한 시트에 있고 기관마다 운영자가 다르면, 기관 컬럼을 `scopeColumn`으로 둔다.
-- `finance`: 결제·금액·환불 컬럼이 있으면 결제 확인 역할.
+- `finance`: 결제·금액·환불 컬럼이 있을 때만. 예약 처리가 아니라 **결제 확인**(금액·결제 상태 보기, 결제 확인·취소)을 맡는다. 결제·금액 컬럼이 없으면 서버가 제외한다.
 - `viewer`: 예약은 안 하고 보기만 하는 역할. `aggregate`·`policy` 시트처럼 예약을 받지 않는 경우에 `booker` 대신 쓴다.
 
-각 페르소나의 `features`는 다음 목록에서만 고른다. booker: `browse_resources`(대상 찾기·검색), `make_reservation`, `my_reservations`, `inquiry`(문의), `notices`(공지 보기). admin: `manage_resources`(대상 등록·수정·삭제), `manage_schedule`(일정·정원), `review_reservations`(예약 승인·처리·현황), `reply_inquiries`, `manage_notices`, `manage_data`(원본 데이터·필드·선택지 관리), `dashboard`, `browse_resources`. staff·org_manager: `review_reservations`, `manage_schedule`, `browse_resources`, `dashboard`, `notices`(org_manager는 `manage_resources`·`reply_inquiries`도). finance: `review_reservations`, `dashboard`. viewer: `browse_resources`, `notices`, `dashboard`. 문의와 공지는 예약하는 사람이 대상을 찾고 묻고 안내받는 일이 자연스러운 서비스(시설·숙박·강좌·행사)에 넣고, 내부 장비 예약처럼 필요 없으면 뺀다. `title`은 이 시트에 맞는 한국어 이름(예: `휴양림 이용객`, `장비 담당자`), `evidence`는 근거 한 줄이다.
+각 페르소나의 `features`는 다음 목록에서만 고른다. booker: `browse_resources`(대상 찾기·검색), `make_reservation`, `my_reservations`, `inquiry`(문의), `notices`(공지 보기). admin: `manage_resources`(대상 등록·수정·삭제), `manage_schedule`(일정·정원), `review_reservations`(예약 승인·처리·현황), `reply_inquiries`, `manage_notices`, `manage_data`(원본 데이터·필드·선택지 관리), `dashboard`, `browse_resources`. staff·org_manager: `review_reservations`, `manage_schedule`, `browse_resources`, `dashboard`, `notices`(org_manager는 `manage_resources`·`reply_inquiries`도). finance: `manage_payments`(결제 확인), `dashboard`. admin도 `manage_payments`를 가질 수 있다. viewer: `browse_resources`, `notices`, `dashboard`. 문의와 공지는 예약하는 사람이 대상을 찾고 묻고 안내받는 일이 자연스러운 서비스(시설·숙박·강좌·행사)에 넣고, 내부 장비 예약처럼 필요 없으면 뺀다. `title`은 이 시트에 맞는 한국어 이름(예: `휴양림 이용객`, `장비 담당자`), `evidence`는 근거 한 줄이다.
+
+# 코드 값의 표시 이름 (`valueLabels`)
+
+예약 대상 컬럼이나 상태 컬럼의 값이 `pt_room`, `edu_center`, `A3`, `0189`처럼 **코드**라서 사람이 읽기 어려우면, 값마다 `{column, value, label}`로 표시 이름을 추정해 준다. `value`는 시트의 값 그대로, `label`은 40자 이내 한국어 이름이다(예: `edu_center` → `교육센터`, `medium_room` → `중회의실`). 뜻이 분명하지 않으면 `PT실(추정)`처럼 "(추정)"을 붙인다. 값이 이미 사람이 읽는 이름이면 적지 않고, 값 종류가 30개를 넘는 컬럼은 건너뛴다. 서버는 표시 이름을 쓰고 원래 코드를 속성으로 남긴다.
 
 # 그 밖의 규칙
 

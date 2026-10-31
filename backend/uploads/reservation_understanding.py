@@ -20,22 +20,25 @@ STATE_KINDS = ("requested", "approved", "rejected", "cancelled", "in_use", "comp
 PERSONAS = ("booker", "admin", "staff", "org_manager", "finance", "viewer")
 FEATURES = ("browse_resources", "make_reservation", "my_reservations", "inquiry", "notices",
             "manage_resources", "manage_schedule", "review_reservations", "reply_inquiries", "manage_notices",
-            "manage_data", "dashboard")
+            "manage_data", "dashboard", "manage_payments")
 PERSONA_FEATURES = {
     "booker": ("browse_resources", "make_reservation", "my_reservations", "inquiry", "notices"),
     "admin": ("manage_resources", "manage_schedule", "review_reservations", "reply_inquiries", "manage_notices",
-              "manage_data", "dashboard", "browse_resources"),
+              "manage_data", "dashboard", "browse_resources", "manage_payments"),
     "staff": ("review_reservations", "manage_schedule", "browse_resources", "dashboard", "notices"),
     "org_manager": ("review_reservations", "manage_schedule", "manage_resources", "browse_resources", "dashboard",
                     "notices", "reply_inquiries"),
-    "finance": ("review_reservations", "dashboard", "browse_resources"),
+    "finance": ("manage_payments", "dashboard", "browse_resources"),
     "viewer": ("browse_resources", "notices", "dashboard"),
 }
 # Features every service of a kind gets even when the model leaves them out.
 REQUIRED_FEATURES = {
     "booker": ("browse_resources", "make_reservation", "my_reservations"),
     "admin": ("manage_resources", "manage_schedule", "review_reservations", "manage_data", "dashboard"),
+    "finance": ("manage_payments",),
 }
+MONEY_ROLES = ("payment", "amount")
+MAX_VALUE_LABELS = 80
 SCOPED_PERSONAS = ("staff", "org_manager")
 STATUS_ROLES = ("status", "approval", "cancel_flag", "lottery", "payment")
 RESOURCE_ROLES = ("resource", "resource_group")
@@ -82,6 +85,7 @@ def understanding_schema(report):
         "personas": {"type": "array", "items": _object({
             "id": _enum(PERSONAS), "title": text, "scopeColumn": column,
             "features": {"type": "array", "items": _enum(FEATURES)}, "evidence": text})},
+        "valueLabels": {"type": "array", "items": _object({"column": column, "value": text, "label": text})},
         "questions": {"type": "array", "items": text},
     })
 
@@ -234,6 +238,9 @@ def validate_understanding(value, report):
             continue
         if persona_id not in SCOPED_PERSONAS:
             scope = 0
+        if persona_id == "finance" and not any(role in MONEY_ROLES for role in result["columnRoles"]):
+            notes.append("finance: 결제·금액 컬럼이 없어 제외했습니다.")
+            continue
         features = []
         for feature in item.get("features") if isinstance(item.get("features"), list) else ():
             if feature in PERSONA_FEATURES[persona_id] and feature not in features:
@@ -292,6 +299,26 @@ def validate_understanding(value, report):
                     break
     order = {persona_id: index for index, persona_id in enumerate(PERSONAS)}
     result["personas"] = sorted(personas, key=lambda persona: order[persona["id"]])
+
+    # Display names for code-like values (pt_room -> PT실): only on resource and status columns, once per value.
+    labelled_columns = set(resources) | ({status_column} if status_column else set())
+    value_labels, seen_values = [], set()
+    raw_labels = value.get("valueLabels") if isinstance(value.get("valueLabels"), list) else []
+    for item in raw_labels:
+        if not isinstance(item, dict):
+            continue
+        column = _column(item.get("column"), count)
+        raw, label = _clean(item.get("value"), 120), _clean(item.get("label"), 40)
+        if not column or column not in labelled_columns or not raw or not label or label == raw or (column, raw) in seen_values:
+            continue
+        observed = observed_values(report, column)
+        if observed is not None and raw not in observed:
+            continue  # a value the sheet does not have
+        seen_values.add((column, raw))
+        value_labels.append({"column": column, "value": raw, "label": label})
+    if len(raw_labels) != len(value_labels):
+        notes.append(f"표시 이름 {len(raw_labels) - len(value_labels)}개를 대상·상태 컬럼이 아니거나 형식이 맞지 않아 제외했습니다.")
+    result["valueLabels"] = value_labels[:MAX_VALUE_LABELS]
 
     questions = []
     for item in value.get("questions") if isinstance(value.get("questions"), list) else ():
