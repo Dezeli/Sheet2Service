@@ -100,7 +100,7 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, onRe
         <div className="section-title"><h3>{selected.name}</h3>
           {canReserve && !usesSlots && <button type="button" data-intent="primary" disabled={!csrf} onClick={() => setReserving({ resource: selected })}>
             {service.booking.approvalRequired ? '예약 신청' : '예약하기'}</button>}</div>
-        <p className="muted">{selected.path}</p>
+        {selected.path !== selected.name && <p className="muted">{selected.path}</p>}
         <dl className="resource-attributes">
           {selected.capacity !== null && <div><dt>정원</dt><dd>{selected.capacity}</dd></div>}
           {Object.entries(selected.attributes || {}).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}

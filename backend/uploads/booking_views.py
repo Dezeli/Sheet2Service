@@ -145,7 +145,7 @@ class ResourcesView(SessionView):
         else:
             resources = resources.filter(level=0)
         resources = resources.annotate(children_total=Count("children", distinct=True),
-                                       active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE), distinct=True))
+                                       active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE), distinct=True)).order_by("path")
         items, paging = paginated(resources, request)
         return Response({**paging, "levels": upload.service_config["resources"]["levels"],
                          "resources": [resource_payload(item, item.children_total, item.active_bookings) for item in items]})
@@ -267,7 +267,7 @@ class SlotsView(SessionView):
         if request.query_params.get("available") == "1":
             today = timezone.localdate()
             slots = slots.filter(closed=False).filter(Q(date__gte=today) | Q(date__isnull=True, starts_at__gte=timezone.now()))
-        slots = slots.annotate(active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE)))
+        slots = slots.annotate(active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE))).order_by("date", "starts_at", "time_slot", "id")
         items, paging = paginated(slots, request)
         return Response({**paging, "slots": [slot_payload(slot, slot.active_bookings) for slot in items]})
 

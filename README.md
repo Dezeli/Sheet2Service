@@ -1,6 +1,6 @@
 # Sheet2Service
 
-단일 표 형태의 스프레드시트를 분석해 데이터의 의미, 엔티티, 관계와 필요한 기능을 추론하고 실제 웹 서비스 형태의 임시 Preview를 제공하는 프로젝트입니다.
+예약 관련 스프레드시트(예약 대장, 시설 목록, 회차표 등) 한 장을 올리면 Claude가 무엇이 예약되고 누가 관리하는지 읽어내고, 그 이해로부터 예약자·관리자 화면을 가진 예약 서비스를 바로 만듭니다. 사람이 템플릿이나 기능을 고르는 단계는 없습니다.
 
 ## 기술 구성
 
@@ -13,7 +13,7 @@
 
 API 사용법과 분석 규칙: [CSV 업로드 API](docs/csv-upload-api.md).
 
-API 호출 없이 준비한 추론 입력·응답 검증: [의미 추론 계약](docs/semantic-inference.md).
+Claude 호출 1회의 계약과 서버 검증: [예약 시트 이해 계약](docs/reservation-understanding.md). 이해에서 서비스까지의 결정론 도출·적재·API·화면: [예약 서비스 도출과 실행](docs/reservation-service.md).
 
 다음 작업을 위한 현황과 합의 사항: [작업 인수인계](docs/handoff.md).
 
