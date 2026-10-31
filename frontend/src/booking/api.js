@@ -45,7 +45,7 @@ export const modeLabels = {
 
 export function formatDate(value) {
   if (!value) return '';
-  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  const date = value instanceof Date ? value : new Date(value.length === 10 ? `${value}T00:00:00` : value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
 }
 
@@ -62,11 +62,18 @@ export function formatTime(value) {
 }
 
 /** One line describing when a booking or slot happens, from whichever fields the sheet had. */
-export function whenText(item) {
+export function whenText(item, unit = 'day') {
   const parts = [];
   if (item.starts_at && item.ends_at) {
-    const sameDay = item.starts_at.slice(0, 10) === item.ends_at.slice(0, 10);
-    parts.push(sameDay ? `${formatDate(item.starts_at)} ${formatTime(item.starts_at)}~${formatTime(item.ends_at)}`
+    const startsAt = new Date(item.starts_at); const endsAt = new Date(item.ends_at);
+    const sameDay = startsAt.toDateString() === endsAt.toDateString();
+    const midnight = (d) => d.getHours() === 0 && d.getMinutes() === 0;
+    if (!sameDay && midnight(startsAt) && midnight(endsAt)) {
+      const days = Math.round((endsAt - startsAt) / 86400000);
+      const last = new Date(endsAt); if (unit !== 'stay') last.setDate(last.getDate() - 1);
+      parts.push(unit === 'stay' ? `${formatDate(startsAt)} ~ ${formatDate(endsAt)} (${days}박)`
+        : days === 1 ? formatDate(startsAt) : `${formatDate(startsAt)} ~ ${formatDate(last)} (${days}일)`);
+    } else parts.push(sameDay ? `${formatDate(item.starts_at)} ${formatTime(item.starts_at)}~${formatTime(item.ends_at)}`
       : `${formatMoment(item.starts_at)} ~ ${formatMoment(item.ends_at)}`);
   } else if (item.starts_at) {
     parts.push(formatMoment(item.starts_at));

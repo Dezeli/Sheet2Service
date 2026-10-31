@@ -19,6 +19,7 @@ from .views import SessionView
 PAGE = 20
 ACTIVE = ("requested", "approved", "in_use", "waiting", "won")
 # action -> (allowed from, to). Reviewers may take every action; bookers only cancel their own.
+WHOLE_DAY = ("전일", "종일", "하루", "전체", "1일")
 PAID = Q(payment__iregex=r"(완료|납부|결제됨|^y$|^yes$|^paid$|^true$)")
 PAYMENT_ACTIONS = {"mark_paid": "결제완료", "mark_unpaid": "미결제"}
 ACTIONS = {
@@ -335,7 +336,7 @@ class SlotView(SessionView):
         return Response({"deleted": True})
 
 
-def _capacity_check(upload, resource, slot, day, starts, ends, party):
+def _capacity_check(upload, resource, slot, day, starts, ends, party, time_slot=""):
     if slot is not None:
         if slot.closed:
             fail("마감된 일정입니다.")
@@ -351,7 +352,12 @@ def _capacity_check(upload, resource, slot, day, starts, ends, party):
     if starts and ends:
         overlapping = active.filter(starts_at__lt=ends, ends_at__gt=starts).count()
     elif day:
-        overlapping = active.filter(date=day).count()
+        same_day = active.filter(date=day)
+        if time_slot:  # a morning booking does not block the afternoon, but a whole-day one blocks both
+            same_day = same_day.filter(Q(time_slot=time_slot) | Q(time_slot="") | Q(time_slot__in=WHOLE_DAY) | Q(time_slot=time_slot))
+            if time_slot in WHOLE_DAY:
+                same_day = active.filter(date=day)
+        overlapping = same_day.count()
     else:
         return
     if overlapping + 1 > capacity:
@@ -417,18 +423,33 @@ class BookingsView(SessionView):
         if resource is not None and slot is None and resource.children.filter(active=True).exists():
             fail("하위 항목까지 선택해 주세요.")
         day = _date(data.get("date"), "날짜")
+        end_day = _date(data.get("end_date"), "종료일")
         starts, ends = _moment(data.get("starts_at"), "시작 시간"), _moment(data.get("ends_at"), "종료 시간")
         time_slot = text_field(data, "time_slot", 120)
         if slot is not None:
             day, starts, ends, time_slot = slot.date, slot.starts_at, slot.ends_at, slot.time_slot
         else:
-            model = booking_cfg["timeModel"]
-            if model in ("date", "date_slot") and day is None:
+            unit = booking_cfg.get("unit", "day")
+            if day is None and starts is None:
                 fail("예약 날짜를 선택해 주세요.")
-            if model == "range" and (starts is None or ends is None):
-                fail("시작과 종료 시간을 입력해 주세요.")
-            if model == "start" and starts is None:
-                fail("시작 시간을 입력해 주세요.")
+            if unit == "time_range":
+                if starts is None or ends is None:
+                    fail("시작과 종료 시각을 선택해 주세요.")
+                if timezone.localtime(starts).date() != timezone.localtime(ends).date():
+                    fail("시작과 종료는 같은 날이어야 합니다.")
+            elif unit in ("stay", "period"):
+                if end_day is None:
+                    end_day = day if unit == "period" else None
+                if end_day is None or end_day < day or (unit == "stay" and end_day == day):
+                    fail("퇴실일은 입실일 다음 날 이후여야 합니다." if unit == "stay" else "종료일은 시작일 이후여야 합니다.")
+                if (end_day - day).days > 60:
+                    fail("한 번에 60일을 넘는 기간은 예약할 수 없습니다.")
+                midnight = timezone.datetime.min.time()
+                starts = timezone.make_aware(timezone.datetime.combine(day, midnight))
+                # a stay ends at checkout morning; a period covers its last day too
+                ends = timezone.make_aware(timezone.datetime.combine(end_day + (timezone.timedelta(days=0) if unit == "stay" else timezone.timedelta(days=1)), midnight))
+            elif unit == "time_slot" and not time_slot and booking_cfg.get("slotOptions"):
+                fail("시간대를 선택해 주세요.")
             if starts and ends and ends <= starts:
                 fail("종료 시간은 시작 시간 이후여야 합니다.")
             if day is None and starts is not None:
@@ -444,7 +465,7 @@ class BookingsView(SessionView):
         with transaction.atomic():
             if resource is not None:
                 Resource.objects.select_for_update().get(pk=resource.pk)
-            _capacity_check(upload, resource, slot, day, starts, ends, party)
+            _capacity_check(upload, resource, slot, day, starts, ends, party, time_slot)
             status = "requested" if booking_cfg["approvalRequired"] else "approved"
             if persona["id"] != "booker":
                 status = data.get("status", "approved") if data.get("status") in ("requested", "approved") else "approved"
@@ -512,6 +533,41 @@ class BookingView(SessionView):
             booking.save(update_fields=["status", "status_label", "processing_note", "updated_at"])
             BookingEvent.objects.create(booking=booking, from_status=previous, to_status=target, persona=persona["id"], note=note)
         return Response(booking_payload(booking, session_key, events=True))
+
+
+class AvailabilityView(SessionView):
+    """Per-day bookings of one resource for a month, so the calendar can grey out full days."""
+
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        config = upload.service_config
+        requested_persona(request, config, "make_reservation", "review_reservations", "browse_resources")
+        resource = get_object_or_404(Resource, pk=identifier(request.query_params.get("resource")), upload=upload)
+        month = request.query_params.get("month") or timezone.localdate().strftime("%Y-%m")
+        try:
+            first = date_type.fromisoformat(month + "-01")
+        except ValueError:
+            fail("월은 YYYY-MM 형식으로 입력해 주세요.")
+        following = (first.replace(day=28) + timezone.timedelta(days=4)).replace(day=1)
+        capacity = resource.capacity or 1
+        counts = {}
+        active = Booking.objects.filter(upload=upload, resource=resource, status__in=ACTIVE)
+        for item in active.filter(date__gte=first, date__lt=following).values("date", "time_slot", "starts_at", "ends_at"):
+            if item["starts_at"] and item["ends_at"] and (timezone.localtime(item["ends_at"]).date() - timezone.localtime(item["starts_at"]).date()).days >= 1:
+                day = timezone.localtime(item["starts_at"]).date()
+                last = timezone.localtime(item["ends_at"]).date()
+                while day < last and day < following:
+                    if day >= first:
+                        counts.setdefault(day.isoformat(), {"count": 0, "slots": []})["count"] += 1
+                    day += timezone.timedelta(days=1)
+                continue
+            entry = counts.setdefault(item["date"].isoformat(), {"count": 0, "slots": []})
+            entry["count"] += 1
+            if item["time_slot"]:
+                entry["slots"].append(item["time_slot"])
+        days = {key: {**value, "full": value["count"] >= capacity and not (value["slots"] and len(set(value["slots"])) < max(1, len(config["booking"].get("slotOptions") or [])) and not any(s in WHOLE_DAY for s in value["slots"]))}
+                for key, value in counts.items()}
+        return Response({"month": month, "capacity": capacity, "days": days})
 
 
 class BookingStatsView(SessionView):

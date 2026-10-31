@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import SectionIcon from '../components/SectionIcon';
 import { api, jsonOptions, query, statusLabels, statusTone, whenText } from './api.js';
 
-export default function MyBookings({ uploadId, persona, csrf, refreshKey = 0 }) {
+export default function MyBookings({ uploadId, service, persona, csrf, refreshKey = 0 }) {
+  const unit = service?.booking?.unit || 'day';
   const [list, setList] = useState({ bookings: [], page: 1, count: 0, has_next: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +35,7 @@ export default function MyBookings({ uploadId, persona, csrf, refreshKey = 0 }) 
         <strong>{item.resource?.path || '항목 없음'}</strong>
         <span className={`service-badge tone-${statusTone[item.status]}`}>{statusLabels[item.status]}</span>
       </div>
-      <p>{whenText(item) || '일시 미정'}{item.party_size ? ` · ${item.party_size}명` : ''}{item.booker ? ` · ${item.booker}` : ''}</p>
+      <p>{whenText(item, unit) || '일시 미정'}{item.party_size ? ` · ${item.party_size}명` : ''}{item.booker ? ` · ${item.booker}` : ''}</p>
       {item.purpose && <p className="muted">{item.purpose}</p>}
       {item.processing_note && <p className="booking-note">처리 메모: {item.processing_note}</p>}
       {['requested', 'approved', 'waiting', 'won'].includes(item.status) &&

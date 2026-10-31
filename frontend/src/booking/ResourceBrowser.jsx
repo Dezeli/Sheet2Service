@@ -110,7 +110,7 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, onRe
           {slots === null && <p className="muted">회차를 불러오는 중입니다.</p>}
           {slots && !slots.length && <p className="muted">{canReserve ? '예약할 수 있는 회차가 없습니다.' : '등록된 회차가 없습니다.'}</p>}
           {slots && slots.length > 0 && <ul>{slots.map((slot) => <li key={slot.id}>
-            <span>{whenText(slot)}</span>
+            <span>{whenText(slot, service.booking.unit)}</span>
             <span className="muted">{slot.capacity === null ? `참가 ${slot.imported_count + slot.booked}` : `잔여 ${slot.remaining} / 정원 ${slot.capacity}`}{slot.closed ? ' · 마감' : ''}</span>
             {canReserve && !slot.closed && (slot.remaining === null || slot.remaining > 0) &&
               <button type="button" data-intent="primary" disabled={!csrf} onClick={() => setReserving({ resource: selected, slot })}>예약</button>}

@@ -17,6 +17,7 @@ const actionsFor = {
 /** Every booking a reviewing persona may see, with filters and the status actions. */
 export default function BookingReview({ uploadId, service, persona, csrf, scope, mode = 'review' }) {
   const payments = mode === 'payments';
+  const unit = service.booking.unit || 'day';
   const [list, setList] = useState({ bookings: [], page: 1, count: 0, has_next: false });
   const [filters, setFilters] = useState({ status: '', q: '', from: '', to: '', payment: '' });
   const [draft, setDraft] = useState(filters);
@@ -88,7 +89,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
           <td><span className={`service-badge tone-${statusTone[item.status]}`}>{statusLabels[item.status]}</span>
             {item.status_label && item.status_label !== statusLabels[item.status] && <small className="muted"> {item.status_label}</small>}</td>
           <td><button type="button" className="service-title-button" onClick={() => openDetail(item)}>{item.resource?.path || '항목 없음'}</button></td>
-          <td>{whenText(item) || '-'}</td>
+          <td>{whenText(item, unit) || '-'}</td>
           <td>{item.booker || (item.imported ? '시트 기록' : '-')}{item.organization ? <small className="muted"> {item.organization}</small> : null}</td>
           {payments ? <>
             <td>{item.amount !== null ? Number(item.amount).toLocaleString() : '-'}</td>
@@ -112,7 +113,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
     </nav>
     {acting && <ServiceDialog title={`${acting.label} 사유`} busy={busy} error={error} onClose={() => { setActing(null); setNote(''); }}>
       <form onSubmit={(event) => { event.preventDefault(); run(acting.item, acting.action, note); }}><fieldset className="inquiry-form" disabled={busy}>
-        <p className="muted">{acting.item.resource?.path} · {whenText(acting.item)}</p>
+        <p className="muted">{acting.item.resource?.path} · {whenText(acting.item, unit)}</p>
         <label>{acting.action === 'reject' ? '거절 사유 (필수)' : '메모 (선택)'}<textarea required={acting.action === 'reject'} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} /></label>
         <div className="admin-row-actions"><button type="submit" data-intent={acting.action === 'reject' ? 'danger' : 'primary'} disabled={busy || !csrf}>{acting.label}</button>
           <button type="button" className="service-back-button" onClick={() => { setActing(null); setNote(''); }}>닫기</button></div>
@@ -121,7 +122,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
     {detail && <ServiceDialog title="예약 상세" busy={busy} error={error} onClose={() => setDetail(null)}>
       <dl className="resource-attributes">
         <div><dt>항목</dt><dd>{detail.resource?.path || '-'}</dd></div>
-        <div><dt>일시</dt><dd>{whenText(detail) || '-'}</dd></div>
+        <div><dt>일시</dt><dd>{whenText(detail, unit) || '-'}</dd></div>
         <div><dt>상태</dt><dd>{statusLabels[detail.status]}{detail.status_label ? ` (시트 표기: ${detail.status_label})` : ''}</dd></div>
         {detail.booker && <div><dt>예약자</dt><dd>{detail.booker}</dd></div>}
         {detail.party_size !== null && <div><dt>인원</dt><dd>{detail.party_size}</dd></div>}

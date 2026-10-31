@@ -16,6 +16,7 @@ ROLES = ("resource", "resource_group", "resource_attribute", "capacity", "locati
          "status", "approval", "payment", "amount", "cancel_flag", "lottery", "staff", "organization",
          "identifier", "created_at", "updated_at", "count", "wide_resource", "wide_time", "note", "other", "ignore")
 BOOKING_MODES = ("approval", "instant", "lottery", "record_only", "none")
+BOOKING_UNITS = ("day", "time_slot", "time_range", "stay", "period")
 STATE_KINDS = ("requested", "approved", "rejected", "cancelled", "in_use", "completed", "waiting", "won", "lost", "other")
 PERSONAS = ("booker", "admin", "staff", "org_manager", "finance", "viewer")
 FEATURES = ("browse_resources", "make_reservation", "my_reservations", "inquiry", "notices",
@@ -77,6 +78,7 @@ def understanding_schema(report):
         "resourceColumns": {"type": "array", "items": column},
         "booking": _object({
             "mode": _enum(BOOKING_MODES),
+            "unit": _enum(("",) + BOOKING_UNITS),
             "statusColumn": column,
             "stateValues": {"type": "array", "items": text},
             "stateKinds": {"type": "array", "items": _enum(STATE_KINDS)},
@@ -219,7 +221,8 @@ def validate_understanding(value, report):
             and not any(role == "lottery" for role in result["columnRoles"]):
         notes.append("추첨 근거 컬럼이 없어 예약 방식을 approval로 낮췄습니다.")
         mode = "approval"
-    result["booking"] = {"mode": mode, "statusColumn": status_column, "states": states,
+    unit = booking.get("unit") if booking.get("unit") in BOOKING_UNITS else ""
+    result["booking"] = {"mode": mode, "unit": unit, "statusColumn": status_column, "states": states,
                          "evidence": _clean(booking.get("evidence"), 200)}
 
     personas = []

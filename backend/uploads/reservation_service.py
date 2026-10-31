@@ -85,6 +85,37 @@ def derive_dashboard(understanding, report, by_role):
     return {"version": 2, "views": [view]}
 
 
+STAY_WORDS = ("숙박", "객실", "캠핑", "체크인", "입실", "퇴실", "야영", "글램핑", "카라반", "펜션", "휴양림", "텐트")
+
+
+def booking_unit(understanding, report, by_role):
+    """The model's unit when it gave one; otherwise what the columns and the subject suggest."""
+    unit = understanding["booking"].get("unit") or ""
+    if unit:
+        return unit
+    columns = report["columns"]
+    labels = " ".join(column.get("label") or column["name"] for column in columns) + " " + understanding["subject"]
+    stay_like = any(word in labels for word in STAY_WORDS)
+    if understanding["sheetKind"] == "wide_schedule":
+        return "time_slot"  # a date row with a time text per resource column
+    if understanding["sheetKind"] in ("resource_catalog", "policy"):
+        # catalog rows describe the resource (check-in hours, fees); they say nothing about a booking's length
+        return "stay" if stay_like else "time_slot" if by_role.get("time_slot") else "day"
+
+    def kind_of(number):
+        return columns[number - 1]["candidate"] if number else ""
+    start, end = (by_role.get("start") or [0])[0], (by_role.get("end") or [0])[0]
+    if start and end and ("datetime" in (kind_of(start), kind_of(end)) or "time" in (kind_of(start), kind_of(end))):
+        return "time_range"
+    if start and end:
+        return "stay" if stay_like else "period"
+    if by_role.get("time_slot"):
+        return "time_slot"
+    if by_role.get("date") and stay_like:
+        return "stay"
+    return "day"
+
+
 def derive_service(understanding, report):
     """The whole service configuration, from the understanding alone."""
     by_role = _columns_by_role(understanding)
@@ -114,6 +145,7 @@ def derive_service(understanding, report):
                       "widePairs": wide_pairs, "implicit": implicit},
         "booking": {
             "mode": booking["mode"],
+            "unit": booking_unit(understanding, report, by_role),
             "acceptsNew": accepts_new,
             "approvalRequired": booking["mode"] in ("approval", "lottery"),  # record_only and instant confirm at once
             "statusColumn": booking["statusColumn"],
@@ -520,7 +552,73 @@ def apply_service(upload, config=None):
                 attributes=attributes, requested_at=requested_at))
         Booking.objects.bulk_create(bookings, batch_size=500)
         counts["bookings"] = len(bookings)
+        _summarize_resources(upload, config)
     return dict(counts)
+
+
+def _summarize_resources(upload, config):
+    """What the sheet's own records say about each resource: typical amount, slots, party, length, count.
+
+    Catalog sheets carry this on the row; records sheets only have it in the bookings, and a booker
+    deciding what to reserve needs it.
+    """
+    unit = config["booking"].get("unit", "day")
+    stats = {}
+    for booking in Booking.objects.filter(upload=upload, resource__isnull=False).values(
+            "resource_id", "amount", "time_slot", "party_size", "starts_at", "ends_at", "date").iterator(chunk_size=1000):
+        item = stats.setdefault(booking["resource_id"], {"count": 0, "amounts": [], "slots": Counter(), "parties": [], "days": []})
+        item["count"] += 1
+        if booking["amount"] is not None and booking["amount"] > 0:
+            item["amounts"].append(booking["amount"])
+        if booking["time_slot"]:
+            item["slots"][booking["time_slot"]] += 1
+        if booking["party_size"]:
+            item["parties"].append(booking["party_size"])
+        if booking["starts_at"] and booking["ends_at"]:
+            length = (timezone.localtime(booking["ends_at"]).date() - timezone.localtime(booking["starts_at"]).date()).days
+            item["days"].append(length if unit == "stay" else length + 1)
+    if not stats:
+        return
+    changed = []
+    for resource in Resource.objects.filter(upload=upload, pk__in=list(stats)):
+        item = stats[resource.pk]
+        summary = {"기록 건수": f'{item["count"]:,}건'}
+        if item["amounts"]:
+            low, high = min(item["amounts"]), max(item["amounts"])
+            summary["기록 기준 금액"] = f"{low:,.0f}원" if low == high else f"{low:,.0f}~{high:,.0f}원"
+        if item["slots"]:
+            summary["자주 쓰인 시간대"] = " · ".join(value for value, _ in item["slots"].most_common(4))
+        if item["parties"]:
+            summary["평균 인원"] = f"{sum(item['parties']) / len(item['parties']):.1f}명"
+        if item["days"] and max(item["days"]) > 1:
+            summary["평균 이용 기간"] = f"{sum(item['days']) / len(item['days']):.1f}{'박' if unit == 'stay' else '일'}"
+        resource.attributes = {**summary, **resource.attributes}
+        changed.append(resource)
+    Resource.objects.bulk_update(changed, ["attributes"], batch_size=500)
+
+
+def _choice_options(upload, config):
+    """Button choices for the reservation form, from what the sheet actually contains."""
+    booking_cfg = config["booking"]
+    slots = Counter()
+    for value in Booking.objects.filter(upload=upload).exclude(time_slot="").values_list("time_slot", flat=True)[:5000]:
+        slots[value] += 1
+    for value in Slot.objects.filter(upload=upload).exclude(time_slot="").values_list("time_slot", flat=True)[:5000]:
+        slots[value] += 1
+    booking_cfg["slotOptions"] = [value for value, _ in slots.most_common(8)]
+    parties = sorted(Booking.objects.filter(upload=upload, party_size__isnull=False).values_list("party_size", flat=True)[:5000])
+    if parties:
+        typical = parties[min(len(parties) - 1, int(len(parties) * 0.95))]
+        booking_cfg["partySizeMax"] = max(1, min(50, typical))
+    else:
+        booking_cfg["partySizeMax"] = 10
+    # Working hours from the records' clock times; midnight marks a date-only value and says nothing.
+    starts = [timezone.localtime(m) for m in Booking.objects.filter(upload=upload, starts_at__isnull=False).values_list("starts_at", flat=True)[:2000]]
+    ends = [timezone.localtime(m) for m in Booking.objects.filter(upload=upload, ends_at__isnull=False).values_list("ends_at", flat=True)[:2000]]
+    hours = [m.hour for m in starts if (m.hour, m.minute) != (0, 0)]
+    end_hours = [m.hour + (1 if m.minute else 0) for m in ends if (m.hour, m.minute) != (0, 0)]
+    low, high = (min(hours) if hours else 8), (max(end_hours) if end_hours else 22)
+    booking_cfg["hourRange"] = [low, min(24, high)] if high - low >= 2 else [8, 22]
 
 
 def build_service(upload, understanding=None):
@@ -530,4 +628,7 @@ def build_service(upload, understanding=None):
     upload.service_config = config
     upload.save(update_fields=["service_config"])
     counts = apply_service(upload, config)
+    _choice_options(upload, config)
+    upload.service_config = config
+    upload.save(update_fields=["service_config"])
     return config, counts

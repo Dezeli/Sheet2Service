@@ -281,8 +281,10 @@ class CodeLabelTests(MaterializeMixin, TestCase):
                          [("pt_room", "PT실(추정)"), ("edu_center", "교육센터")])  # column 5 is not a resource or status column
         self.assertEqual(counts, {"resources": 3, "bookings": 5})
         pt = Resource.objects.get(upload=upload, name="PT실(추정)")
-        self.assertEqual(pt.attributes, {"원본 코드": "pt_room"})
+        self.assertEqual(pt.attributes["원본 코드"], "pt_room")
+        self.assertEqual(pt.attributes["기록 건수"], "2건")  # records summarized onto the resource
+        self.assertEqual(config["booking"]["unit"], "period")  # 예약시작일~종료일 on a meeting room
         self.assertEqual(Booking.objects.filter(upload=upload, resource=pt).count(), 2)
-        self.assertEqual(Resource.objects.get(upload=upload, name="medium_room").attributes, {})
+        self.assertNotIn("원본 코드", Resource.objects.get(upload=upload, name="medium_room").attributes)
         finance = next(p for p in config["personas"] if p["id"] == "finance")
         self.assertEqual(finance["features"], ["manage_payments"])  # review_reservations is not a finance feature

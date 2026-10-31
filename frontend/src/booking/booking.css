@@ -74,3 +74,32 @@
 .button-link { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 12px; text-decoration: none; font-weight: 600; background: var(--action-accent, #1f6b65); color: white; }
 .button-link.secondary { background: white; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
 .button-link:hover { filter: brightness(.96); }
+
+.reserve-form { display: grid; gap: 16px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.reserve-form > label { display: grid; gap: 6px; }
+.reserve-info { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--teal-light, #eef6f4); }
+.reserve-info div { display: flex; gap: 6px; align-items: baseline; }
+.reserve-info dt { font-size: .8rem; color: var(--muted); }
+.reserve-info dd { margin: 0; font-weight: 600; }
+.reserve-step { display: grid; gap: 8px; }
+.chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.service-page .chip { min-height: 40px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: white; color: var(--ink); font-weight: 500; box-shadow: none; }
+.service-page .chip.chip-wide { display: grid; gap: 2px; text-align: left; border-radius: 12px; padding: 8px 14px; }
+.service-page .chip.is-selected { background: var(--action-accent, #1f6b65); border-color: var(--action-accent, #1f6b65); color: white; }
+.service-page .chip.is-selected .muted { color: #e6f2f0; }
+.calendar { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: white; }
+.calendar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.calendar-head button { min-height: 36px; padding: 4px 12px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.calendar-weekday { text-align: center; font-size: .75rem; color: var(--muted); padding: 4px 0; }
+.service-page .calendar-day { display: grid; place-items: center; gap: 0; min-height: 46px; padding: 2px; border: 1px solid transparent; border-radius: 10px; background: white; color: var(--ink); font-weight: 500; box-shadow: none; }
+.service-page .calendar-day small { font-size: .65rem; color: var(--muted); line-height: 1; }
+.service-page .calendar-day:hover:not(:disabled) { background: var(--teal-light, #eef6f4); }
+.service-page .calendar-day:disabled { color: #c3cad3; background: #f7f8fa; }
+.service-page .calendar-day.is-full { color: #9b2c2c; }
+.service-page .calendar-day.is-full small { color: #9b2c2c; }
+.service-page .calendar-day.in-range { background: var(--teal-light, #eef6f4); }
+.service-page .calendar-day.is-selected { background: var(--action-accent, #1f6b65); color: white; }
+.service-page .calendar-day.is-selected small { color: #e6f2f0; }
+.reserve-summary { margin: 0; }
+.reserve-dialog { width: min(720px, 94vw); }

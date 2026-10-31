@@ -167,7 +167,7 @@ export default function BookingService({ uploadId, page }) {
           {items.map((item) => <button type="button" key={item.key} aria-pressed={item.key === active} onClick={() => setMenu(item.key)}><SectionIcon name={item.icon} />{item.label}</button>)}</nav>}
         <div className={role === 'admin' ? 'admin-content' : undefined}>
           {active === 'browse' && <ResourceBrowser uploadId={uploadId} service={service} persona={persona} csrf={csrf} onReserved={() => setRefresh((n) => n + 1)} />}
-          {active === 'mine' && <MyBookings uploadId={uploadId} persona={persona} csrf={csrf} refreshKey={refresh} />}
+          {active === 'mine' && <MyBookings uploadId={uploadId} service={service} persona={persona} csrf={csrf} refreshKey={refresh} />}
           {active === 'review' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} />}
           {active === 'payments' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} mode="payments" />}
           {active === 'slots' && <SlotAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}
