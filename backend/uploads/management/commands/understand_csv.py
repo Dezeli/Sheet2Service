@@ -26,6 +26,7 @@ class Command(BaseCommand):
         parser.add_argument("--approve", help="호출 승인 기록 문구. 없으면 호출하지 않습니다.")
         parser.add_argument("--json", action="store_true", help="이해 결과를 JSON으로 출력")
         parser.add_argument("--keep", action="store_true", help="업로드 레코드를 삭제하지 않고 남김")
+        parser.add_argument("--name", help="프롬프트에 보낼 파일 이름(기본은 경로의 파일 이름)")
 
     def handle(self, *args, **options):
         path = Path(options["path"])
@@ -36,13 +37,14 @@ class Command(BaseCommand):
             report = analyze(data)
         except TableError as exc:
             raise CommandError(str(exc)) from exc
-        upload = Upload(session_key="cli", original_name=path.name, file_type="csv", size=len(data),
+        shown = options["name"] or path.name
+        upload = Upload(session_key="cli", original_name=shown, file_type="csv", size=len(data),
                         encoding=report["source"]["encoding"], analysis=report)
         upload.original.save(path.name, ContentFile(data, name=path.name), save=False)
         upload.save()
-        body = understanding_request_body(report, file_name=path.name)
+        body = understanding_request_body(report, file_name=shown)
         summary = understanding_approval_summary(body)
-        self.stdout.write(f'{path.name}: {report["row_count"]}행 {report["column_count"]}열, '
+        self.stdout.write(f'{shown}: {report["row_count"]}행 {report["column_count"]}열, '
                           f'요청 {len(json.dumps(body, ensure_ascii=False).encode("utf-8")):,}바이트')
         if not options["approve"]:
             self.stdout.write(json.dumps(summary, ensure_ascii=False, indent=2))
