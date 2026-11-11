@@ -38,3 +38,6 @@ Thumbs.db
 
 # Report drafts stay local
 /docs/midterm-report-*.md
+
+# Design checks (taste-skill state, Chrome profile, screenshots)
+/frontend/.taste-skill/
