@@ -26,6 +26,19 @@ export const statusLabels = {
   completed: '이용 완료', waiting: '대기', won: '당첨', lost: '미당첨', other: '기타',
 };
 
+// What a reviewer may do from each status, coloured by what the action does: approve green, start blue,
+// put back amber, refuse or cancel red (ui.css, button intents).
+export const statusActions = {
+  requested: [['approve', '승인', 'approve'], ['reject', '거절', 'danger']],
+  waiting: [['approve', '승인', 'approve'], ['reject', '거절', 'danger']],
+  approved: [['check_in', '이용 시작', 'info'], ['complete', '완료', 'approve'], ['cancel', '취소', 'danger']],
+  won: [['check_in', '이용 시작', 'info'], ['complete', '완료', 'approve'], ['cancel', '취소', 'danger']],
+  in_use: [['complete', '완료', 'approve']],
+  rejected: [['reopen', '다시 접수', 'warn']],
+  cancelled: [['reopen', '다시 접수', 'warn']],
+  completed: [], lost: [['reopen', '다시 접수', 'warn']], other: [['reopen', '다시 접수', 'warn']],
+};
+
 export const statusTone = {
   requested: 'pending', approved: 'ok', rejected: 'bad', cancelled: 'muted', in_use: 'ok',
   completed: 'muted', waiting: 'pending', won: 'ok', lost: 'muted', other: 'muted',
@@ -59,6 +72,33 @@ export function formatTime(value) {
   if (!value) return '';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+}
+
+const pad = (n) => String(n).padStart(2, '0');
+const shortDay = (d, withYear) => `${withYear ? `${d.getFullYear()}. ` : ''}${d.getMonth() + 1}. ${d.getDate()}.`;
+const shortClock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/** whenText for a table cell: numeric dates and 24-hour clocks so a range fits one line; the year only when it is not this one. */
+export function whenShort(item, unit = 'day') {
+  const thisYear = new Date().getFullYear();
+  const at = (value) => { const d = value instanceof Date ? value : new Date(String(value).length === 10 ? `${value}T00:00:00` : value); return Number.isNaN(d.getTime()) ? null : d; };
+  const day = (d) => shortDay(d, d.getFullYear() !== thisYear);
+  const start = at(item.starts_at); const end = at(item.ends_at);
+  if (start && end) {
+    const midnight = (d) => d.getHours() === 0 && d.getMinutes() === 0;
+    if (start.toDateString() === end.toDateString()) return `${day(start)} ${shortClock(start)}–${shortClock(end)}`;
+    if (midnight(start) && midnight(end)) {
+      const days = Math.round((end - start) / 86400000);
+      const last = new Date(end); if (unit !== 'stay') last.setDate(last.getDate() - 1);
+      if (unit !== 'stay' && days === 1) return day(start);
+      const until = unit === 'stay' ? end : last;
+      return `${day(start)} – ${shortDay(until, until.getFullYear() !== start.getFullYear())} (${days}${unit === 'stay' ? '박' : '일'})`;
+    }
+    return `${day(start)} ${shortClock(start)} – ${shortDay(end, end.getFullYear() !== start.getFullYear())} ${shortClock(end)}`;
+  }
+  if (start) return `${day(start)} ${shortClock(start)}`;
+  const date = item.date ? at(item.date) : null;
+  return [date ? day(date) : '', item.time_slot || ''].filter(Boolean).join(' ');
 }
 
 /** One line describing when a booking or slot happens, from whichever fields the sheet had. */

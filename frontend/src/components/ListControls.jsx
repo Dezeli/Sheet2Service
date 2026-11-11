@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ChoiceCombobox, SearchField } from './ui';
 
 export function listQuery(filters = {}) {
   const params = new URLSearchParams();
@@ -10,49 +11,39 @@ export function listQuery(filters = {}) {
   return params.toString();
 }
 
+/** Search as you type, plus one field = value filter whose values come from the sheet; every change applies at once. */
 export default function ListControls({ uploadId, columns, disabled, onApply, actions }) {
-  const [query, setQuery] = useState('');
-  const [column, setColumn] = useState('');
-  const [value, setValue] = useState('');
+  const [criteria, setCriteria] = useState({ q: '', column: '', value: '' });
   const [choices, setChoices] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (!column) { setChoices([]); setLoading(false); setError(''); return; }
+    if (!criteria.column) { setChoices([]); setError(''); return undefined; }
     const controller = new AbortController();
-    setChoices([]); setLoading(true); setError('');
-    fetch(`/api/uploads/${uploadId}/choices/?column=${column}`, { credentials: 'same-origin', signal: controller.signal })
+    setChoices([]); setError('');
+    fetch(`/api/uploads/${uploadId}/choices/?column=${criteria.column}`, { credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok || !Array.isArray(data.choices)) throw new Error('필터 값을 불러오지 못했습니다.');
-        if (!controller.signal.aborted) setChoices(data.choices);
+        if (!response.ok || !Array.isArray(data.choices)) throw new Error();
+        if (!controller.signal.aborted) setChoices(data.choices.map((choice) => choice.value));
       })
-      .catch((caught) => { if (!controller.signal.aborted) setError('필터 값을 불러오지 못했습니다. 다시 시도해 주세요.'); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      .catch(() => { if (!controller.signal.aborted) setError('값 목록을 불러오지 못했습니다.'); });
     return () => controller.abort();
-  }, [uploadId, column, retry]);
-  return <form className="list-controls" onSubmit={(event) => {
-    event.preventDefault(); onApply({ q: query, column, value });
-  }}>
-    <div className="list-search-row"><label className="list-search"><svg className="list-search-icon" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg><input aria-label="검색어" type="search" value={query} maxLength={200} placeholder="검색어를 입력하세요" disabled={disabled} onChange={(event) => setQuery(event.target.value)} /></label>
-      {actions && <div className="list-extra-actions">{actions}</div>}
-    </div>
-    <div className="list-filter-row">
-    <svg className="list-filter-icon" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z" /></svg>
-    <label><select aria-label="필터 컬럼" value={column} disabled={disabled} onChange={(event) => { setColumn(event.target.value); setValue(''); }}>
-      <option value="">전체</option>{columns.map((item) => <option key={item.number} value={item.number}>{item.label}</option>)}
-    </select></label>
-    <label><select aria-label="필터 값" value={value} disabled={!column || disabled || loading || !!error} onChange={(event) => setValue(event.target.value)}>
-      <option value="">{!column ? '필터를 선택하세요' : loading ? '불러오는 중…' : error ? '조회 실패' : '전체'}</option>
-      {choices.map((choice) => <option key={choice.id} value={choice.value}>{choice.value}</option>)}
-    </select></label>
-    <div className="list-filter-actions">
-    <button type="submit" disabled={disabled || loading || !!error}>검색</button>
-    <button type="button" className="service-back-button" disabled={disabled} onClick={() => {
-      setQuery(''); setColumn(''); setValue(''); onApply({});
-    }}>초기화</button>
-    </div></div>
-    {error && <div className="list-filter-error" role="alert">{error} <button type="button" className="service-back-button" disabled={disabled || loading} onClick={() => setRetry((current) => current + 1)}>다시 시도</button></div>}
-  </form>;
+  }, [uploadId, criteria.column]);
+
+  function apply(changes) {
+    const next = { ...criteria, ...changes };
+    setCriteria(next);
+    if (!next.column || next.value || 'value' in changes || 'q' in changes) onApply(next);
+  }
+  const filtered = Boolean(criteria.q || criteria.value);
+  return <div className="ui-toolbar list-controls-bar">
+    <SearchField value={criteria.q} placeholder="검색" onSearch={(q) => apply({ q })} />
+    <select aria-label="필터할 필드" value={criteria.column} disabled={disabled} onChange={(event) => apply({ column: event.target.value, value: '' })}>
+      <option value="">필드로 거르기</option>{columns.map((item) => <option key={item.number} value={item.number}>{item.label}</option>)}
+    </select>
+    {criteria.column && <div className="list-value-filter"><ChoiceCombobox label="필터 값" options={choices} value={criteria.value} emptyLabel="전체"
+      placeholder={error || '값 찾기'} disabled={disabled || Boolean(error)} onChange={(value) => apply({ value })} /></div>}
+    {filtered && <button type="button" className="text-button" disabled={disabled} onClick={() => { const empty = { q: '', column: '', value: '' }; setCriteria(empty); onApply(empty); }}>조건 지우기</button>}
+    {actions && <div className="toolbar-end">{actions}</div>}
+  </div>;
 }

@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './inquiry.css';
 import ServiceDialog from '../components/ServiceDialog';
+import SectionIcon from '../components/SectionIcon';
+import { Empty, IconButton, Pager, Segmented } from '../components/ui';
+import ResourceCombobox from '../booking/ResourceCombobox';
 
 const labels = { received: '접수', in_progress: '처리 중', resolved: '완료' };
+const tones = { received: 'pending', in_progress: 'pending', resolved: 'ok' };
+const dateText = (value) => new Date(value).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
+const openEditor = (item) => ({ id: item.id, title: item.title, body: item.body, subject: item.subject, answer: item.answer,
+  status: item.status === 'received' ? 'resolved' : item.status });
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
   const data = await response.json().catch(() => null);
@@ -10,109 +17,115 @@ async function api(url, options = {}) {
   return data;
 }
 
-export default function InquiryPage({ uploadId, subjectColumn = 0, admin = false }) {
+/** Ask (with an optional related item) and see one's own questions; or, for admins, answer them. */
+export default function InquiryPage({ uploadId, withResource = false, admin = false }) {
   const [list, setList] = useState({ inquiries: [], page: 1, count: 0, has_next: false });
   const [csrf, setCsrf] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [rowId, setRowId] = useState('');
-  const [rows, setRows] = useState({ rows: [], page: 1, row_count: 0 });
+  const [resource, setResource] = useState(null);
   const [editor, setEditor] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [status, setStatus] = useState('');
   const working = useRef(false);
-  const column = subjectColumn;
   const base = `/api/uploads/${uploadId}/inquiries/`;
-  async function load(page = 1) {
-    const result = await api(`${base}?page=${page}${admin ? '' : '&mine=1'}`);
-    setList(result);
-  }
-  async function loadRows(page = 1) {
-    setRows(await api(`/api/uploads/${uploadId}/managed-rows/?page=${page}`));
-  }
+  const listUrl = (page, only = status) => `${base}?page=${page}${admin ? (only ? `&status=${only}` : '') : '&mine=1'}`;
+  const load = (page = 1, only = status) => api(listUrl(page, only)).then(setList).catch((caught) => setError(caught.message));
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api('/api/session/'), api(`${base}?page=1${admin ? '' : '&mine=1'}`),
-      !admin && column > 0 ? api(`/api/uploads/${uploadId}/managed-rows/?page=1`) : Promise.resolve(null),
-    ]).then(([session, result, items]) => {
-      if (!active) return;
-      setCsrf(session.csrf_token); setList(result); if (items) setRows(items);
-    }).catch((caught) => { if (active) setError(caught.message); });
+    Promise.all([api('/api/session/'), api(listUrl(1))])
+      .then(([session, result]) => { if (active) { setCsrf(session.csrf_token); setList(result); } })
+      .catch((caught) => { if (active) setError(caught.message); });
     return () => { active = false; };
-  }, [uploadId, admin, column]);
+  }, [uploadId, admin]);
 
   async function save(event) {
     event.preventDefault();
     if (working.current || !csrf) return;
     working.current = true; setBusy(true); setError(''); setMessage('');
-    let saved = false;
     try {
       await api(admin ? `${base}${editor.id}/` : base, {
         method: admin ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
         body: JSON.stringify(admin ? { answer: editor.answer, status: editor.status }
-          : { title, body, ...(rowId ? { row_id: rowId } : {}) }),
+          : { title, body, ...(resource ? { resource_id: resource.id } : {}) }),
       });
-      saved = true;
       if (admin) setEditor(null);
-      else { setTitle(''); setBody(''); setRowId(''); }
-      setMessage(admin ? '저장했습니다.' : '문의가 접수됐습니다.');
+      else { setTitle(''); setBody(''); setResource(null); }
+      setMessage(admin ? '저장했습니다.' : '문의가 등록됐습니다.');
       await load(admin ? list.page : 1);
-    } catch (caught) {
-      setError(saved ? '저장됐지만 목록을 불러오지 못했습니다. 새로고침해 주세요.' : caught.message);
-    } finally { working.current = false; setBusy(false); }
+    } catch (caught) { setError(caught.message); }
+    finally { working.current = false; setBusy(false); }
+  }
+  async function remove(item) {
+    if (working.current || !csrf || !window.confirm(`"${item.title}" 문의를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    working.current = true; setBusy(true); setError(''); setMessage('');
+    try {
+      const response = await fetch(`${base}${item.id}/`, { method: 'DELETE', credentials: 'same-origin', headers: { 'X-CSRFToken': csrf } });
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || '문의를 삭제하지 못했습니다.');
+      setMessage('문의를 삭제했습니다.'); await load(list.page > 1 && list.inquiries.length === 1 ? list.page - 1 : list.page);
+    } catch (caught) { setError(caught.message); }
+    finally { working.current = false; setBusy(false); }
   }
 
-  return <div className="inquiry-page template-workspace">
-    {error && <p className="error" role="alert">{error}</p>}
-    {!admin && <section className="panel workspace-main"><h2>문의하기</h2>
-      <form onSubmit={save}><fieldset disabled={busy} className="inquiry-form">
-        {column > 0 && <div>
-          <label>관련 항목 (선택)<select value={rowId} onChange={(event) => setRowId(event.target.value)}>
-            <option value="">일반 문의</option>
-            {rowId && !rows.rows.some((row) => row.id === rowId) && <option value={rowId}>선택한 항목</option>}
-            {rows.rows.map((row) => <option key={row.id} value={row.id}>{row.values[column - 1] || `항목 ${row.row_number}`}</option>)}
-          </select></label>
-          <nav className="service-pagination" aria-label="관련 항목 페이지">
-            <button type="button" disabled={rows.page === 1} onClick={() => loadRows(rows.page - 1).catch((caught) => setError(caught.message))}>이전</button>
-            <span>{rows.page} / {Math.max(1, Math.ceil(rows.row_count / 20))}</span>
-            <button type="button" disabled={rows.page * 20 >= rows.row_count} onClick={() => loadRows(rows.page + 1).catch((caught) => setError(caught.message))}>다음</button>
-          </nav>
-        </div>}
+  return <div className={admin ? 'inquiry-page' : 'inquiry-page template-workspace'}>
+    {!admin && <section className="panel workspace-main">
+      <div className="section-title"><h2 className="icon-heading"><SectionIcon name="inquiry" />문의하기</h2></div>
+      <form onSubmit={save}><fieldset disabled={busy} className="form-grid">
+        {withResource && <div><span className="field-label">관련 항목 (선택)</span>
+          <ResourceCombobox uploadId={uploadId} value={resource} onChange={setResource} leafOnly label="관련 항목" placeholder="일반 문의" /></div>}
         <label>제목<input type="text" required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <label>내용<textarea required maxLength={5000} value={body} onChange={(event) => setBody(event.target.value)} /></label>
-        <button type="submit" disabled={!csrf || !title.trim() || !body.trim()}>{busy ? '접수 중...' : '문의 접수'}</button>
+        <label>내용<textarea required rows={5} maxLength={5000} value={body} onChange={(event) => setBody(event.target.value)} /></label>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="dialog-actions"><button type="submit" disabled={!csrf || !title.trim() || !body.trim()}>{busy ? '등록 중…' : '문의 등록'}</button></div>
       </fieldset></form>
     </section>}
-    <section className={admin ? 'panel workspace-main' : 'panel workspace-side'}>
-      <div className="section-title"><h2>{admin ? '문의 관리' : '내 문의'}</h2>
-        <button type="button" className="service-back-button" disabled={busy} onClick={() => load(list.page).catch((caught) => setError(caught.message))}>새로고침</button></div>
-      {!list.inquiries.length && <p className="muted">문의가 없습니다.</p>}
-      <div className="inquiry-list">{list.inquiries.map((item) => <details key={item.id} className="inquiry-item">
-        <summary><strong>{item.title}</strong><span className="service-badge">{labels[item.status]}</span></summary>
-        {item.subject && <p className="muted">{item.subject}</p>}
+    <section className={admin ? 'panel' : 'panel workspace-side'}>
+      <div className="section-title"><h2 className="icon-heading"><SectionIcon name="inquiry" />{admin ? '문의 답변' : '내 문의'}</h2>
+        <span className="section-tools">{admin && <span className="section-count">{list.count.toLocaleString()}건</span>}
+          <IconButton icon="refresh" label="새로고침" disabled={busy} onClick={() => load(list.page)} /></span></div>
+      {admin && error && <p className="error" role="alert">{error}</p>}
+      {message && <p className="notice" role="status">{message}</p>}
+      {admin && <div className="ui-toolbar"><Segmented label="처리 상태" value={status} onChange={(next) => { setStatus(next); load(1, next); }}
+        options={[{ value: '', label: '전체' }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} /></div>}
+      {!list.inquiries.length && <Empty>{status ? `${labels[status]} 상태인 문의가 없습니다.` : '문의가 없습니다.'}</Empty>}
+      {admin && list.inquiries.length > 0 && <div className="table-scroll" role="region" aria-label="문의 목록" tabIndex={0}>
+        <table className="resource-table notice-table inquiry-table">
+          <thead><tr><th scope="col">문의</th><th scope="col">관련 항목</th><th scope="col">상태</th><th scope="col">날짜</th><th scope="col"><span className="visually-hidden">관리</span></th></tr></thead>
+          <tbody>{list.inquiries.map((item) => <tr key={item.id} className={item.status === 'resolved' ? 'is-inactive' : undefined}>
+            <td className="notice-title"><button type="button" className="service-title-button" onClick={() => setEditor(openEditor(item))}>{item.title}</button>
+              <small className="cell-sub">{item.body.slice(0, 60)}{item.body.length > 60 ? '…' : ''}</small></td>
+            <td title={item.subject ? item.subject.split(' / ').join(' › ') : undefined}>{item.subject ? item.subject.split(' / ').at(-1) : <span className="muted">일반</span>}</td>
+            <td><span className={`service-badge tone-${tones[item.status]}`}>{labels[item.status]}</span></td>
+            <td className="cell-when">{dateText(item.created_at)}</td>
+            <td className="cell-actions"><div className="ui-actions">
+              <IconButton icon={item.answer ? 'edit' : 'reply'} tone="info" label={item.answer ? '답변 수정' : '답변하기'} disabled={busy} onClick={() => setEditor(openEditor(item))} />
+              <IconButton icon="trash" tone="danger" label="삭제" disabled={busy} onClick={() => remove(item)} />
+            </div></td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
+      {!admin && <div className="inquiry-list">{list.inquiries.map((item) => <details key={item.id} className="inquiry-item">
+        <summary><strong>{item.title}</strong><span className={`service-badge tone-${tones[item.status]}`}>{labels[item.status]}</span></summary>
+        {item.subject && <p className="muted" title={item.subject.split(' / ').join(' › ')}>{item.subject.split(' / ').at(-1)}</p>}
         <p className="inquiry-text">{item.body}</p>
         {item.answer && <div className="inquiry-answer"><h3>답변</h3><p className="inquiry-text">{item.answer}</p></div>}
-        {admin && <button type="button" disabled={busy} onClick={() => setEditor({ id: item.id, title: item.title, answer: item.answer, status: item.status })}>답변·상태 수정</button>}
-      </details>)}</div>
-      {message && <p className="notice" role="status">{message}</p>}
-      <nav className="service-pagination" aria-label="문의 페이지">
-        <button type="button" disabled={busy || list.page === 1} onClick={() => load(list.page - 1).catch((caught) => setError(caught.message))}>이전</button>
-        <span>{list.page} / {Math.max(1, Math.ceil(list.count / 20))}</span>
-        <button type="button" disabled={busy || !list.has_next} onClick={() => load(list.page + 1).catch((caught) => setError(caught.message))}>다음</button>
-      </nav>
+      </details>)}</div>}
+      <Pager page={list.page} count={list.count} disabled={busy} onPage={load} />
     </section>
     {admin && editor && <ServiceDialog title={editor.title} busy={busy} error={error} onClose={() => setEditor(null)}><form onSubmit={save}>
-      <fieldset className="inquiry-form" disabled={busy}>
-        <label>답변<textarea value={editor.answer} required={editor.status === 'resolved'} maxLength={5000}
+      <fieldset className="form-grid" disabled={busy}>
+        {editor.subject && <p className="muted" title={editor.subject.split(' / ').join(' › ')}>{editor.subject.split(' / ').at(-1)}</p>}
+        <p className="inquiry-text">{editor.body}</p>
+        <label>답변<textarea rows={5} value={editor.answer} required={editor.status === 'resolved'} maxLength={5000}
           onChange={(event) => setEditor({ ...editor, answer: event.target.value })} /></label>
-        <label>처리 상태<select value={editor.status} onChange={(event) => setEditor({ ...editor, status: event.target.value })}>
-          {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select></label>
-        <div className="admin-row-actions"><button type="submit" disabled={!csrf || (editor.status === 'resolved' && !editor.answer.trim())}>저장</button>
-          <button type="button" className="service-back-button" onClick={() => setEditor(null)}>취소</button></div>
+        <div className="dialog-actions dialog-actions-split">
+          <Segmented label="처리 상태" value={editor.status} onChange={(status) => setEditor({ ...editor, status })}
+            options={Object.entries(labels).map(([value, label]) => ({ value, label }))} />
+          <button type="submit" disabled={!csrf || (editor.status === 'resolved' && !editor.answer.trim())}>저장</button>
+        </div>
       </fieldset>
     </form></ServiceDialog>}
   </div>;
@@ -126,10 +139,10 @@ export function InquiryMetrics({ uploadId }) {
     catch (caught) { setError(caught.message); }
   }
   useEffect(() => { load(); }, [uploadId]);
-  return <section className="panel"><div className="section-title"><h2>문의 현황</h2>
-    <button type="button" className="service-back-button" onClick={load}>새로고침</button></div>
+  return <section className="panel"><div className="section-title"><h2 className="icon-heading"><SectionIcon name="inquiry" />문의 현황</h2>
+    <IconButton icon="refresh" label="새로고침" onClick={load} /></div>
     {error && <p className="error" role="alert">{error}</p>}
-    {stats && <dl className="metrics">{Object.entries(labels).map(([status, label]) =>
-      <div key={status}><dt>{label}</dt><dd>{stats.counts[status].toLocaleString()}</dd></div>)}</dl>}
+    {stats && <div className="ledger-focus">{Object.entries(labels).map(([status, label], index) =>
+      <div key={status} className={index ? 'is-quiet' : undefined}><span className="ledger-focus__label">{label}</span><strong>{stats.counts[status].toLocaleString()}</strong><span className="ledger-focus__unit">건</span></div>)}</div>}
   </section>;
 }

@@ -5,8 +5,10 @@ import { createAdminConfig } from './config.js';
 import './admin.css';
 import { rowSummary } from './rowSummary.js';
 import RowEditor from './RowEditor';
-import FieldNameEditor, { FieldActionIcon } from './FieldNameEditor';
+import FieldNameEditor from './FieldNameEditor';
 import ChoiceManagement from './ChoiceManagement';
+import SectionIcon from '../components/SectionIcon';
+import { Empty, Icon, IconButton, Pager } from '../components/ui';
 
 const labels = { records: '데이터 관리', fields: '필드 구성', choices: '선택지 관리' };
 const typeLabels = { text: '텍스트', number: '숫자', date: '날짜', datetime: '날짜·시간', time: '시간', boolean: '참·거짓', formula: '수식 형태', mixed: '혼합', unknown: '알 수 없음', empty: '빈 값', url: 'URL', email: '이메일' };
@@ -170,7 +172,7 @@ export default function AdminPreview({ uploadId, report, dashboardConfig, workfl
   }
 
 
-  return <section className={embedded ? 'admin-data-view' : 'admin-shell'} aria-label="관리자 화면">
+  return <section className={embedded ? 'panel admin-data-view' : 'admin-shell'} aria-label={labels[view.template]}>
     {!embedded && <aside className="admin-sidebar">
       <p className="admin-sidebar-title">관리 메뉴</p>
       <nav aria-label="관리자 화면 선택">
@@ -181,16 +183,15 @@ export default function AdminPreview({ uploadId, report, dashboardConfig, workfl
       </nav>
     </aside>}
     <div className={embedded ? undefined : 'admin-content'}>
-      <div className="admin-heading">
-        <div><h2>{labels[view.template]}</h2></div>
-        <span>{view.template === 'choices' ? `${choiceList.length.toLocaleString()}개 선택지`
-          : view.template === 'fields' ? `${report.column_count.toLocaleString()}개 필드`
-          : `${rowCount.toLocaleString()}개 데이터 · ${report.column_count.toLocaleString()}개 필드`}</span>
+      <div className="section-title"><h2 className="icon-heading"><SectionIcon name={view.template === 'records' ? 'data' : view.template} />{labels[view.template]}</h2>
+        <span className="section-count">{view.template === 'choices' ? `${choiceList.length.toLocaleString()}개`
+          : view.template === 'fields' ? `${report.column_count.toLocaleString()}개`
+          : `${rowCount.toLocaleString()}행`}</span>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       {view.template === 'records' && <>
         <ListControls uploadId={uploadId} columns={report.columns.map((item, index) => ({ ...item, number: index + 1 }))} disabled={busy || loadingRows}
-          actions={<button type="button" data-intent="primary" disabled={busy || !csrf} onClick={() => openEditor()}>데이터 추가</button>}
+          actions={<button type="button" data-intent="primary" className="with-icon" disabled={busy || !csrf} onClick={() => openEditor()}><Icon name="plus" size={16} />데이터 추가</button>}
           onApply={(criteria) => { setError(''); loadRows(1, criteria).catch((caught) => setError(caught.message)); }} />
         {deleteTarget && <ServiceDialog title="데이터를 삭제할까요?" className="admin-delete-dialog" busy={busy} error={error} onClose={() => setDeleteTarget(null)}>
           <div className="delete-target"><span className="muted">{deleteTarget.displayNumber}번 데이터</span>
@@ -199,33 +200,25 @@ export default function AdminPreview({ uploadId, report, dashboardConfig, workfl
             {!deleteSummary.title && !deleteSummary.supporting.length && <p>모든 값이 비어 있는 데이터</p>}
           </div>
           <p className="muted">삭제한 데이터는 되돌릴 수 없습니다.</p>
-          <div className="dialog-form-actions"><button type="button" className="service-back-button" disabled={busy} onClick={() => setDeleteTarget(null)}>취소</button>
+          <div className="dialog-actions"><button type="button" className="text-button" disabled={busy} onClick={() => setDeleteTarget(null)}>취소</button>
             <button type="button" data-intent="danger" disabled={busy || !csrf} onClick={() => deleteRow(deleteTarget)}>{busy ? '삭제 중…' : '삭제'}</button></div>
         </ServiceDialog>}
         {editor && <RowEditor row={editor} columns={report.columns} choices={choices}
           titleColumns={[workflowConfig?.user?.subjectColumn, ...titleColumns, ...dashboardConfig.views.map((item) => item.titleColumn)]}
           busy={busy} error={error} canSave={!!csrf} onSave={saveRow} onClose={() => setEditor(null)} />}
         <div className="table-scroll" role="region" aria-label="관리 데이터 목록" tabIndex={0}>
-          <table className="admin-record-table"><thead><tr><th scope="col" className="admin-record-tools">번호 · 관리</th>{view.columns.map((number) => <th key={number} scope="col">{report.columns[number - 1].label}</th>)}</tr></thead>
+          <table className="admin-record-table"><thead><tr><th scope="col" className="admin-record-tools">번호</th>{view.columns.map((number) => <th key={number} scope="col">{report.columns[number - 1].label}</th>)}</tr></thead>
             <tbody>{rows.map((row, index) => <tr key={row.id}>
               <td className="admin-record-tools"><div className="admin-record-actions"><span className="admin-record-number">{(page - 1) * 20 + index + 1}</span>
-                <button type="button" className="record-icon-action" title="수정" aria-label={`${(page - 1) * 20 + index + 1}행 수정`} disabled={busy} onClick={() => openEditor(row)}>
-                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m15 5 4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z" /></svg>
-                </button>
-                <button type="button" className="record-icon-action record-delete-action" title="삭제" aria-label={`${(page - 1) * 20 + index + 1}행 삭제`} disabled={busy || !csrf} onClick={() => { setError(''); setDeleteTarget({ ...row, displayNumber: (page - 1) * 20 + index + 1 }); }}>
-                  <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
-                </button></div></td>
+                <IconButton icon="edit" tone="info" label={`${(page - 1) * 20 + index + 1}행 수정`} disabled={busy} onClick={() => openEditor(row)} />
+                <IconButton icon="trash" tone="danger" label={`${(page - 1) * 20 + index + 1}행 삭제`} disabled={busy || !csrf} onClick={() => { setError(''); setDeleteTarget({ ...row, displayNumber: (page - 1) * 20 + index + 1 }); }} /></div></td>
               {view.columns.map((number) => <td key={number}><span className="service-table-value" title={String(row.values[number - 1] ?? '')}>{row.values[number - 1] || '—'}</span></td>)}
             </tr>)}</tbody>
           </table>
         </div>
-        {!rows.length && !loadingRows && <p className="muted">조건에 맞는 데이터가 없습니다.</p>}
+        {!rows.length && !loadingRows && <Empty>조건에 맞는 데이터가 없습니다.</Empty>}
         {message && <p className="notice" role="status">{message}</p>}
-        <nav className="service-pagination" aria-label="관리 데이터 페이지">
-          <button type="button" disabled={busy || loadingRows || page === 1} onClick={() => loadRows(page - 1).catch((caught) => setError(caught.message))}>이전</button>
-          <span>{page} / {Math.max(1, Math.ceil(rowCount / 20))}</span>
-          <button type="button" disabled={busy || loadingRows || page * 20 >= rowCount} onClick={() => loadRows(page + 1).catch((caught) => setError(caught.message))}>다음</button>
-        </nav>
+        <Pager page={page} count={rowCount} disabled={busy || loadingRows} onPage={(next) => loadRows(next).catch((caught) => setError(caught.message))} />
       </>}
       {view.template === 'fields' && <div className="table-scroll admin-fields-scroll" role="region" aria-label="필드 구성 목록" tabIndex={0}>
         <table className="admin-fields-table"><thead><tr>{[
@@ -239,8 +232,8 @@ export default function AdminPreview({ uploadId, report, dashboardConfig, workfl
         const field = report.columns[number - 1];
         return <tr key={field.id}><td>{number}</td><th scope="row">
           {fieldEditing === number ? <FieldNameEditor label={field.label} number={number} busy={busy} onSave={(label) => saveFieldName(number, label)} onCancel={() => setFieldEditing(null)} />
-            : <div className="field-name-display"><span>{field.label}</span><button type="button" className="field-name-icon" title="필드명 수정" aria-label={`${field.label} 필드명 수정`} disabled={busy || !csrf}
-              onClick={() => { setFieldEditing(number); setError(''); setMessage(''); }}><FieldActionIcon kind="edit" /></button></div>}
+            : <div className="field-name-display"><span>{field.label}</span><IconButton icon="edit" tone="info" label={`${field.label} 필드명 수정`} disabled={busy || !csrf}
+              onClick={() => { setFieldEditing(number); setError(''); setMessage(''); }} /></div>}
         </th><td>{typeLabels[field.candidate] || field.candidate}</td><td>{field.unique_count.toLocaleString()}개</td></tr>;
       })}</tbody></table></div>}
       {view.template === 'choices' && <ChoiceManagement key={column} uploadId={uploadId} columns={report.columns} column={column}

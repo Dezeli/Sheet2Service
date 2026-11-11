@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ServiceDialog from '../components/ServiceDialog';
 import { api, jsonOptions, query, whenText } from './api.js';
+import { WEEKDAY_NAMES, attributeText, formatPhoneInput, moment, perPersonText, phoneDigits, rememberBooker, rememberedBooker, rulesOf } from './rules.js';
+import { IconButton, Seats, Stepper } from '../components/ui';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const todayIso = () => iso(new Date());
@@ -9,17 +11,18 @@ const addDays = (text, days) => { const d = new Date(`${text}T00:00:00`); d.setD
 const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
-/** An always-open month calendar. Single pick, or a range when `range` is set (two taps). */
-function Calendar({ uploadId, persona, resource, start, end, range, onChange }) {
+/** An always-open month calendar. Single pick, or a range when `range` is set (two taps). Full and closed days are off. */
+function Calendar({ uploadId, persona, resource, start, end, range, stay, onChange }) {
   const [month, setMonth] = useState(monthOf(start || todayIso()));
   const [availability, setAvailability] = useState({});
+  const [limit, setLimit] = useState(0);
   const today = todayIso();
   useEffect(() => {
     if (!resource) return;
     let active = true;
     api(`/api/uploads/${uploadId}/bookings/availability/${query({ persona: persona.id, resource: resource.id, month })}`)
-      .then((data) => { if (active) setAvailability(data.days || {}); })
-      .catch(() => { if (active) setAvailability({}); });
+      .then((data) => { if (active) { setAvailability((known) => ({ ...known, ...(data.days || {}) })); setLimit(data.limit || 0); } })
+      .catch(() => {});
     return () => { active = false; };
   }, [uploadId, persona.id, resource, month]);
 
@@ -34,64 +37,104 @@ function Calendar({ uploadId, persona, resource, start, end, range, onChange }) 
   }, [month]);
   const shift = (delta) => {
     const [year, mon] = month.split('-').map(Number);
-    const next = new Date(year, mon - 1 + delta, 1);
-    setMonth(monthOf(iso(next)));
+    setMonth(monthOf(iso(new Date(year, mon - 1 + delta, 1))));
   };
+  const blocked = (day) => Boolean(availability[day]?.full || availability[day]?.closed);
+  // While picking the end of a range, it may not cross a full night: a stay may check out on one, a period may not include it.
+  const choosingEnd = range && start && !end;
+  const firstBlockedAfter = useMemo(() => {
+    if (!choosingEnd) return null;
+    const known = Object.keys(availability).filter((day) => day > start && blocked(day)).sort();
+    return known[0] || null;
+  }, [choosingEnd, start, availability]);
+  function disabled(day) {
+    if (day < today) return true;
+    if (choosingEnd && day > start) return Boolean(firstBlockedAfter && (stay ? day > firstBlockedAfter : day >= firstBlockedAfter));
+    if (choosingEnd && day === start) return stay;
+    return blocked(day);
+  }
   const inRange = (day) => range && start && end && day > start && day < end;
   const title = `${month.slice(0, 4)}년 ${Number(month.slice(5))}월`;
   return <div className="calendar" role="group" aria-label="날짜 선택">
     <div className="calendar-head">
-      <button type="button" className="service-back-button" onClick={() => shift(-1)} disabled={month <= monthOf(today)} aria-label="이전 달">‹</button>
+      <IconButton icon="prev" label="이전 달" onClick={() => shift(-1)} disabled={month <= monthOf(today)} />
       <strong>{title}</strong>
-      <button type="button" className="service-back-button" onClick={() => shift(1)} aria-label="다음 달">›</button>
+      <IconButton icon="next" label="다음 달" onClick={() => shift(1)} />
     </div>
     <div className="calendar-grid">
       {WEEKDAYS.map((name) => <span key={name} className="calendar-weekday">{name}</span>)}
       {cells.map((day, index) => {
         if (!day) return <span key={`blank-${index}`} />;
         const info = availability[day];
-        const past = day < today;
-        const full = Boolean(info?.full);
         const selected = day === start || day === end;
-        return <button type="button" key={day} disabled={past || (full && !range)}
-          className={`calendar-day${selected ? ' is-selected' : ''}${inRange(day) ? ' in-range' : ''}${full ? ' is-full' : ''}${info && !full ? ' has-bookings' : ''}`}
-          aria-pressed={selected} onClick={() => onChange(day)}>
+        const past = day < today;
+        const mark = past ? '' : info?.closed ? '휴무' : info?.full ? '마감' : info?.count ? String(info.count) : '';
+        return <button type="button" key={day} disabled={disabled(day)}
+          className={`calendar-day${selected ? ' is-selected' : ''}${inRange(day) ? ' in-range' : ''}${!past && info?.closed ? ' is-closed' : !past && info?.full ? ' is-full' : ''}${!past && info?.count && !info.full ? ' has-bookings' : ''}`}
+          aria-pressed={selected} aria-label={`${day}${mark && Number.isNaN(Number(mark)) ? ` ${mark}` : ''}`} onClick={() => onChange(day)}>
           <span>{Number(day.slice(8))}</span>
-          {full && <small>마감</small>}
-          {info && !full && <small>{info.count}</small>}
+          {mark && Number.isNaN(Number(mark)) ? <small>{mark}</small>
+            : !past && info && info.remaining !== undefined && info.count > 0 ? <Seats compact remaining={info.remaining} total={limit} /> : null}
         </button>;
       })}
     </div>
   </div>;
 }
 
-function Chips({ options, value, onChange, label, allowCustom = false, customLabel = '직접 입력', custom, onCustom }) {
-  return <div className="chip-group" role="group" aria-label={label}>
-    {options.map((option) => <button type="button" key={option} className={`chip${value === option ? ' is-selected' : ''}`}
-      aria-pressed={value === option} onClick={() => onChange(option)}>{option}</button>)}
-    {allowCustom && <button type="button" className={`chip${custom ? ' is-selected' : ''}`} aria-pressed={custom} onClick={onCustom}>{customLabel}</button>}
-  </div>;
+/** What a booker needs to know before picking: a per-person limit and closed days, nothing about capacity. */
+function bookerNote(rules) {
+  const closed = rules.closedWeekdays?.length ? `${rules.closedWeekdays.map((day) => WEEKDAY_NAMES[day]).join('·')} 휴무` : '';
+  return [perPersonText(rules), closed].filter(Boolean).join(' · ');
+}
+
+/** Sessions or time blocks of one day, with what is already taken switched off. */
+function useDayState(uploadId, persona, resource, day, enabled) {
+  const [state, setState] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setState(null); setError('');
+    if (!enabled || !day || !resource) return;
+    let active = true;
+    api(`/api/uploads/${uploadId}/bookings/availability/${query({ persona: persona.id, resource: resource.id, date: day })}`)
+      .then((data) => { if (active) setState(data); })
+      .catch((caught) => { if (active) setError(caught.message); });
+    return () => { active = false; };
+  }, [uploadId, persona.id, resource, day, enabled]);
+  return [state, error];
 }
 
 /** Reserve one resource. Everything but the name and the note is chosen by pressing, not typing. */
 export default function ReserveDialog({ uploadId, service, persona, csrf, resource, slot: presetSlot, onClose, onDone }) {
   const booking = service.booking;
-  const unit = booking.unit || 'day';
+  const target = presetSlot?.resource ? { id: presetSlot.resource } : resource;
+  const [ruled, setRuled] = useState(null); // the rules this resource books under: its own, its branch's or the service's
+  const rules = ruled?.rules || rulesOf(service);
+  const mode = rules.timeMode;
   const usesSlots = service.sheetKind === 'schedule_slots';
   const [slots, setSlots] = useState(null);
   const [slot, setSlot] = useState(presetSlot || null);
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
-  const [timeSlot, setTimeSlot] = useState('');
-  const [customSlot, setCustomSlot] = useState(false);
-  const [startHour, setStartHour] = useState(null);
-  const [endHour, setEndHour] = useState(null);
-  const [party, setParty] = useState(null);
-  const [customParty, setCustomParty] = useState(false);
-  const [booker, setBooker] = useState('');
+  const [session, setSession] = useState('');
+  const [fromBlock, setFromBlock] = useState(null);
+  const [toBlock, setToBlock] = useState(null);
+  const [party, setParty] = useState(1);
+  const [booker, setBooker] = useState(() => (persona.id === 'booker' ? rememberedBooker().name : ''));
+  const [phone, setPhone] = useState(() => (persona.id === 'booker' ? rememberedBooker().phone : ''));
   const [purpose, setPurpose] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const timed = Boolean(ruled) && !usesSlots && (mode === 'time_slot' || mode === 'time_range');
+  const [day, dayError] = useDayState(uploadId, persona, resource, start, timed);
+
+  useEffect(() => {
+    if (!target) return;
+    let active = true;
+    api(`/api/uploads/${uploadId}/booking-rules/${query({ resource: target.id })}`)
+      .then((data) => { if (active) setRuled(data); })
+      .catch(() => { if (active) setRuled({ rules: rulesOf(service), source: null }); });
+    return () => { active = false; };
+  }, [uploadId, target?.id]);
 
   useEffect(() => {
     if (!usesSlots || presetSlot || !resource) return;
@@ -102,105 +145,145 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
     return () => { active = false; };
   }, [uploadId, resource, usesSlots, presetSlot]);
 
-  const slotOptions = booking.slotOptions || [];
-  const partyMax = Math.max(1, Math.min(50, resource?.capacity && unit !== 'stay' ? Math.min(resource.capacity, booking.partySizeMax || 10) : booking.partySizeMax || 10));
-  const partyOptions = Array.from({ length: Math.min(partyMax, 12) }, (_, i) => String(i + 1));
-  const [hourFrom, hourTo] = booking.hourRange || [8, 22];
-  const hours = Array.from({ length: hourTo - hourFrom + 1 }, (_, i) => hourFrom + i);
-
-  function pickDay(day) {
-    if (unit === 'stay' || unit === 'period') {
-      if (!start || (start && end) || day < start) { setStart(day); setEnd(''); }
-      else if (day === start) { if (unit === 'period') setEnd(day); }
-      else setEnd(day);
-    } else {
-      setStart(day); setEnd('');
+  const limit = resource?.capacity || rules.limit;
+  const byPeople = rules.capacityBy === 'people';
+  const partyMax = Math.max(1, byPeople ? limit : 100);
+  const blocks = day?.blocks || [];
+  const step = rules.hourly.step;
+  const minSteps = rules.hourly.minSteps;
+  const maxSteps = rules.hourly.maxSteps || blocks.length;
+  // a start block needs minSteps free blocks in a row from it
+  const startable = (index) => blocks.slice(index, index + minSteps).length === minSteps && blocks.slice(index, index + minSteps).every((block) => block.available);
+  const endChoices = fromBlock === null ? [] : (() => {
+    const list = [];
+    for (let index = fromBlock; index < blocks.length && index - fromBlock < maxSteps && blocks[index].available; index += 1) {
+      if (index - fromBlock + 1 >= minSteps) list.push(index);
     }
+    return list;
+  })();
+
+  function pickDay(value) {
+    setSession(''); setFromBlock(null); setToBlock(null);
+    if (mode === 'stay' || mode === 'period') {
+      if (!start || end || value < start) { setStart(value); setEnd(''); }
+      else if (value === start) { if (mode === 'period') setEnd(value); }
+      else setEnd(value);
+    } else { setStart(value); setEnd(''); }
   }
 
   const ready = slot ? true
-    : unit === 'time_range' ? Boolean(start && startHour !== null && endHour !== null && endHour > startHour)
-    : unit === 'stay' ? Boolean(start && end && end > start)
-    : unit === 'period' ? Boolean(start && end)
-    : unit === 'time_slot' ? Boolean(start && (timeSlot || !slotOptions.length))
+    : mode === 'time_range' ? Boolean(start && fromBlock !== null && toBlock !== null)
+    : mode === 'time_slot' ? Boolean(start && session)
+    : mode === 'stay' ? Boolean(start && end && end > start)
+    : mode === 'period' ? Boolean(start && end)
     : Boolean(start);
-  const needsName = Boolean(booking.bookerColumn);
-  const summary = slot ? whenText(slot, unit)
-    : unit === 'stay' && start && end ? `${start} 입실 · ${end} 퇴실 (${daysBetween(start, end)}박)`
-    : unit === 'period' && start && end ? (start === end ? `${start} (1일)` : `${start} ~ ${end} (${daysBetween(start, end) + 1}일)`)
-    : unit === 'time_range' && start ? `${start} ${startHour !== null ? `${startHour}:00` : '--'}~${endHour !== null ? `${endHour}:00` : '--'}`
-    : start ? `${start}${timeSlot ? ' ' + timeSlot : ''}` : '';
+  // a booker is their name and phone number: it is how they find their bookings and how one-per-person is counted
+  const isBooker = persona.id === 'booker';
+  const needsName = isBooker || Boolean(booking.bookerColumn);
+  const phoneOk = phone ? Boolean(phoneDigits(phone)) : !isBooker;
+  const sessionInfo = rules.sessions.find((item) => item.label === session);
+  const summary = slot ? whenText(slot, mode)
+    : mode === 'stay' && start && end ? `${start} 입실 · ${end} 퇴실 (${daysBetween(start, end)}박)`
+    : mode === 'period' && start && end ? (start === end ? `${start} (1일)` : `${start} ~ ${end} (${daysBetween(start, end) + 1}일)`)
+    : mode === 'time_range' && start ? `${start} ${fromBlock !== null ? blocks[fromBlock].start : '--'}~${toBlock !== null ? blocks[toBlock].end : '--'}`
+    : mode === 'time_slot' && start ? `${start}${session ? ` ${session}${sessionInfo?.start && sessionInfo.label !== `${sessionInfo.start}~${sessionInfo.end}` ? ` (${sessionInfo.start}~${sessionInfo.end})` : ''}` : ''}`
+    : start;
 
   async function submit(event) {
     event.preventDefault();
     if (busy || !ready) return;
     setBusy(true); setError('');
     const body = { persona: persona.id, booker, purpose };
+    if (phone) body.phone = phone;
     if (party) body.party_size = Number(party);
     if (slot) body.slot_id = slot.id;
     else {
       body.resource_id = resource.id;
       body.date = start;
-      if (unit === 'stay' || unit === 'period') body.end_date = end;
-      if (timeSlot && unit !== 'time_range') body.time_slot = timeSlot;
-      if (unit === 'time_range') {
-        body.starts_at = new Date(`${start}T${String(startHour).padStart(2, '0')}:00:00`).toISOString();
-        body.ends_at = new Date(`${start}T${String(Math.min(endHour, 23)).padStart(2, '0')}:${endHour === 24 ? '59' : '00'}:00`).toISOString();
+      if (mode === 'stay' || mode === 'period') body.end_date = end;
+      if (mode === 'time_slot') body.time_slot = session;
+      if (mode === 'time_range') {
+        body.starts_at = moment(start, blocks[fromBlock].start);
+        body.ends_at = moment(start, blocks[toBlock].end);
       }
     }
-    try { onDone(await api(`/api/uploads/${uploadId}/bookings/`, jsonOptions('POST', csrf, body))); }
+    try {
+      const created = await api(`/api/uploads/${uploadId}/bookings/`, jsonOptions('POST', csrf, body));
+      if (isBooker) rememberBooker(booker.trim(), formatPhoneInput(phone));
+      onDone(created);
+    }
     catch (caught) { setError(caught.message); }
     finally { setBusy(false); }
   }
 
-  const info = resource ? Object.entries(resource.attributes || {}).filter(([key]) => ['기록 기준 금액', '평일금액', '주말금액', '성수기금액', '요금', '금액', '자주 쓰인 시간대', '평균 인원', '평균 이용 기간', '정원', '이용시작시간', '이용종료시간'].includes(key)) : [];
+  const info = resource ? Object.entries(resource.attributes || {}).filter(([key]) => ['기록 기준 금액', '평일금액', '주말금액', '성수기금액', '요금', '금액', '이용료', '정원', '이용시작시간', '이용종료시간'].includes(key)) : [];
   const title = `${slot?.resource_name || resource?.name || ''} 예약`;
   return <ServiceDialog title={title} busy={busy} error={error} onClose={onClose} className="reserve-dialog">
     <form onSubmit={submit}><fieldset className="reserve-form" disabled={busy}>
-      {resource && resource.path !== resource.name && <p className="muted">{resource.path}</p>}
+      {resource && resource.path.split(' / ').slice(-2, -1)[0] && resource.path.split(' / ').slice(-2, -1)[0] !== resource.name && <p className="muted reserve-path" title={resource.path.split(' / ').join(' › ')}>{resource.path.split(' / ').slice(-2, -1)[0]}</p>}
       {(info.length > 0 || resource?.capacity) && <dl className="reserve-info">
-        {resource?.capacity && <div><dt>정원</dt><dd>{resource.capacity}</dd></div>}
-        {info.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}
+        {resource?.capacity && <div><dt>{byPeople ? '정원' : '동시 예약'}</dt><dd>{resource.capacity}{byPeople ? '명' : '건'}</dd></div>}
+        {info.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{attributeText(key, value)}</dd></div>)}
       </dl>}
+      {!ruled && <p className="muted" role="status">예약 규칙을 불러오는 중입니다.</p>}
+      {ruled && bookerNote(rules) && <p className="muted reserve-rule">{bookerNote(rules)}</p>}
       {usesSlots && !presetSlot && <div className="reserve-step">
         <span className="field-label">회차</span>
         {slots === null && <p className="muted">회차를 불러오는 중입니다.</p>}
         {slots && !slots.length && <p className="muted">예약할 수 있는 회차가 없습니다.</p>}
-        {slots && slots.length > 0 && <div className="chip-group">{slots.map((item) => <button type="button" key={item.id}
-          className={`chip chip-wide${slot?.id === item.id ? ' is-selected' : ''}`} aria-pressed={slot?.id === item.id} onClick={() => setSlot(item)}>
-          <span>{whenText(item, unit)}</span><small className="muted">{item.remaining === null ? '정원 제한 없음' : `잔여 ${item.remaining}`}</small></button>)}</div>}
+        {slots && slots.length > 0 && <div className="chip-group">{slots.map((item) => {
+          const full = item.remaining === 0;
+          return <button type="button" key={item.id} disabled={full}
+            className={`chip chip-wide${slot?.id === item.id ? ' is-selected' : ''}${full ? ' is-taken' : ''}`} aria-pressed={slot?.id === item.id} onClick={() => setSlot(item)}>
+            <span>{whenText(item, mode)}</span>{item.remaining === null ? <small className="muted">정원 제한 없음</small> : <Seats remaining={item.remaining} total={item.capacity} unit="명" />}</button>;
+        })}</div>}
       </div>}
-      {!usesSlots && <div className="reserve-step">
-        <span className="field-label">{unit === 'stay' ? '입실일과 퇴실일' : unit === 'period' ? '시작일과 종료일 (하루면 같은 날을 두 번)' : '날짜'}</span>
-        <Calendar uploadId={uploadId} persona={persona} resource={resource} start={start} end={end} range={unit === 'stay' || unit === 'period'} onChange={pickDay} />
+      {ruled && !usesSlots && <div className="reserve-step">
+        <span className="field-label">{mode === 'stay' ? '입실일과 퇴실일' : mode === 'period' ? '시작일과 종료일 (하루면 같은 날을 두 번)' : '날짜'}</span>
+        <Calendar uploadId={uploadId} persona={persona} resource={resource} start={start} end={end}
+          range={mode === 'stay' || mode === 'period'} stay={mode === 'stay'} onChange={pickDay} />
       </div>}
-      {!usesSlots && (unit === 'time_slot' || (slotOptions.length > 0 && unit !== 'time_range')) && <div className="reserve-step">
-        <span className="field-label">시간대</span>
-        {slotOptions.length > 0 && !customSlot && <Chips label="시간대" options={slotOptions} value={timeSlot} onChange={setTimeSlot}
-          allowCustom customLabel="다른 시간" custom={customSlot} onCustom={() => { setCustomSlot(true); setTimeSlot(''); }} />}
-        {(customSlot || !slotOptions.length) && <input type="text" aria-label="시간대" maxLength={120} placeholder="예: 10:00~12:00" value={timeSlot} onChange={(event) => setTimeSlot(event.target.value)} />}
+      {timed && start && <div className="reserve-step">
+        <span className="field-label">{mode === 'time_slot' ? '시간대' : `시간 (${step}분 단위)`}</span>
+        {dayError && <p className="error">{dayError}</p>}
+        {!day && !dayError && <p className="muted">남은 시간을 확인하는 중입니다.</p>}
+        {day && mode === 'time_slot' && <div className="chip-group" role="group" aria-label="시간대">
+          {day.sessions.map((item) => <button type="button" key={item.label} disabled={!item.available}
+            className={`chip chip-wide${session === item.label ? ' is-selected' : ''}${item.available ? '' : ' is-taken'}`}
+            aria-pressed={session === item.label} onClick={() => setSession(item.label)}>
+            <span>{item.label}</span>
+            {item.start && item.label !== `${item.start}~${item.end}` && <small className="muted">{item.start}~{item.end}</small>}
+            {item.available || !item.remaining ? <Seats remaining={item.remaining} total={day.limit} unit={byPeople ? '명' : '자리'} /> : <small className="muted">지난 시간</small>}
+          </button>)}
+        </div>}
+        {day && mode === 'time_range' && <>
+          {!blocks.some((_, index) => startable(index)) && <p className="muted">이 날은 남은 시간이 없습니다. 다른 날을 선택하세요.</p>}
+          <span className="field-label">시작</span>
+          <div className="chip-group" role="group" aria-label="시작 시각">{blocks.map((block, index) => <button type="button" key={block.start}
+            disabled={!startable(index)} className={`chip${fromBlock === index ? ' is-selected' : ''}${block.available ? '' : ' is-taken'}`}
+            aria-pressed={fromBlock === index} onClick={() => { setFromBlock(index); setToBlock(minSteps === 1 ? index : index + minSteps - 1); }}>
+            <span>{block.start}</span>{day.limit > 1 && <Seats compact remaining={block.remaining} total={day.limit} />}</button>)}</div>
+          {fromBlock !== null && <><span className="field-label">종료</span>
+            <div className="chip-group" role="group" aria-label="종료 시각">{endChoices.map((index) => <button type="button" key={blocks[index].end}
+              className={`chip${toBlock === index ? ' is-selected' : ''}`} aria-pressed={toBlock === index} onClick={() => setToBlock(index)}>
+              {blocks[index].end}<small>{((index - fromBlock + 1) * step) % 60 ? `${(index - fromBlock + 1) * step}분` : `${((index - fromBlock + 1) * step) / 60}시간`}</small></button>)}</div></>}
+        </>}
       </div>}
-      {!usesSlots && unit === 'time_range' && <div className="reserve-step">
-        <span className="field-label">시작 시각</span>
-        <div className="chip-group">{hours.slice(0, -1).map((hour) => <button type="button" key={hour} className={`chip${startHour === hour ? ' is-selected' : ''}`}
-          aria-pressed={startHour === hour} onClick={() => { setStartHour(hour); if (endHour !== null && endHour <= hour) setEndHour(null); }}>{hour}:00</button>)}</div>
-        <span className="field-label">종료 시각</span>
-        <div className="chip-group">{hours.map((hour) => <button type="button" key={hour} className={`chip${endHour === hour ? ' is-selected' : ''}`}
-          disabled={startHour === null || hour <= startHour} aria-pressed={endHour === hour} onClick={() => setEndHour(hour)}>{hour}:00</button>)}</div>
-      </div>}
-      <div className="reserve-step">
-        <span className="field-label">인원{booking.partySizeColumns?.length ? '' : ' (선택)'}</span>
-        {!customParty && <Chips label="인원" options={partyOptions} value={party} onChange={setParty}
-          allowCustom={partyMax > partyOptions.length || true} customLabel="더 많이" custom={customParty} onCustom={() => { setCustomParty(true); setParty(null); }} />}
-        {customParty && <input type="number" aria-label="인원" min={1} max={100000} value={party || ''} onChange={(event) => setParty(event.target.value)} />}
+      <div className="reserve-step reserve-inline">
+        <span className="field-label">인원</span>
+        <Stepper label="인원" value={party} min={1} max={partyMax} unit="명" onChange={setParty} />
       </div>
-      <label>예약자 이름{needsName ? '' : ' (선택)'}<input type="text" required={needsName} maxLength={200} value={booker} onChange={(event) => setBooker(event.target.value)} /></label>
-      <label>요청 사항·목적 (선택)<textarea maxLength={2000} value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
-      <p className="reserve-summary">{summary ? <strong>{summary}</strong> : <span className="muted">날짜를 선택하세요.</span>}
-        <span className="muted"> · {booking.approvalRequired ? '신청 후 관리자가 승인하면 확정됩니다.' : '신청하면 바로 확정됩니다.'}</span></p>
-      <div className="admin-row-actions">
-        <button type="submit" data-intent="primary" disabled={busy || !csrf || !ready}>{busy ? '접수 중…' : booking.approvalRequired ? '예약 신청' : '예약하기'}</button>
-        <button type="button" className="service-back-button" disabled={busy} onClick={onClose}>취소</button>
+      <div className="reserve-person">
+        <label>예약자 이름{needsName ? '' : ' (선택)'}<input type="text" required={needsName} maxLength={200} autoComplete="name" value={booker} onChange={(event) => setBooker(event.target.value)} /></label>
+        <label>전화번호{isBooker ? '' : ' (선택)'}<input type="tel" inputMode="tel" required={isBooker} maxLength={20} autoComplete="tel" placeholder="010-1234-5678"
+          aria-invalid={phone.length >= 12 && !phoneDigits(phone)} value={phone} onChange={(event) => setPhone(formatPhoneInput(event.target.value))} /></label>
+      </div>
+      {phone.length >= 12 && !phoneDigits(phone) && <p className="error">전화번호를 다시 확인해 주세요.</p>}
+      <label>요청 사항 (선택)<textarea rows={3} maxLength={2000} value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
+      <div className="reserve-footer">
+        <p className="reserve-summary">{summary ? <strong>{summary}</strong> : <span className="muted">날짜를 고르세요</span>}
+          {booking.approvalRequired && <small className="muted">관리자 승인 후 확정</small>}</p>
+        <button type="submit" data-intent="primary" disabled={busy || !csrf || !ready || !ruled || !phoneOk}>{busy ? '접수 중…' : booking.approvalRequired ? '예약 신청' : '예약하기'}</button>
       </div>
     </fieldset></form>
   </ServiceDialog>;

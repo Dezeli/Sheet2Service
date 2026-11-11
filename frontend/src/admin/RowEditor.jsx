@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import ServiceDialog from '../components/ServiceDialog';
-import SearchableChoice from './SearchableChoice';
+import { ChoiceCombobox, SearchField } from '../components/ui';
 import { rowSummary } from './rowSummary.js';
+
+/** Active choices, plus the field's current and original value even when that choice is switched off. */
+function choiceOptions(choices, current, original) {
+  const values = choices.filter((choice) => choice.active).map((choice) => choice.value);
+  for (const value of [original, current]) if (value !== null && value !== undefined && value !== '' && !values.includes(String(value))) values.unshift(String(value));
+  return values;
+}
 
 const display = (value) => value === null || value === undefined || value === '' ? '빈 값' : String(value);
 
@@ -23,9 +30,8 @@ export default function RowEditor({ row, columns, choices, titleColumns, busy, e
       if (!review) setReview(true); else onSave(values);
     }}>
       {!review ? <>
-        <div className="editor-search"><input type="search" aria-label="필드 검색" placeholder="필드 이름 또는 번호로 검색" value={query} disabled={busy}
-          onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
-          <span className="muted" aria-live="polite">{changed.length}개 변경</span></div>
+        <div className="ui-toolbar"><SearchField value={query} delay={0} label="필드 찾기" placeholder="필드 찾기" onSearch={setQuery} />
+          <span className="section-count" aria-live="polite">{changed.length}개 바뀜</span></div>
         <fieldset disabled={busy} className="admin-editor-grid">{shown.map(({ column, index }) => {
           const isChanged = changed.some((field) => field.index === index);
           const wide = Math.max(String(values[index] ?? '').length, String(row.values[index] ?? '').length) > 80;
@@ -35,8 +41,9 @@ export default function RowEditor({ row, columns, choices, titleColumns, busy, e
                 onClick={() => setValues((current) => current.map((item, at) => at === index ? row.values[index] : item))}>
                 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 0 12" /></svg>
               </button>}</div>
-            <SearchableChoice label={column.label} value={values[index]} choices={choices[index + 1] || []} disabled={busy}
-              onChange={(value) => setValues((current) => current.map((item, at) => at === index ? value : item))} />
+            <ChoiceCombobox label={column.label} value={values[index] ?? ''} emptyLabel="빈 값" disabled={busy}
+              options={choiceOptions(choices[index + 1] || [], values[index], row.values[index])}
+              onChange={(value) => setValues((current) => current.map((item, at) => at === index ? (value === '' ? null : value) : item))} />
           </div>;
         })}
           {!shown.length && <p className="muted">일치하는 필드가 없습니다.</p>}
@@ -46,8 +53,8 @@ export default function RowEditor({ row, columns, choices, titleColumns, busy, e
         {changed.map((field) => <section key={field.index} className="editor-change"><h3>{field.column.label}</h3>
           <dl><div><dt>변경 전</dt><dd>{display(field.before)}</dd></div><div><dt>변경 후</dt><dd>{display(field.after)}</dd></div></dl></section>)}
       </div>}
-      <div className="dialog-form-actions">
-        <button type="button" className="service-back-button" disabled={busy} onClick={review ? () => setReview(false) : onClose}>{review ? '계속 수정' : '취소'}</button>
+      <div className="dialog-actions">
+        {review && <button type="button" className="text-button" disabled={busy} onClick={() => setReview(false)}>계속 수정</button>}
         <button type="submit" disabled={busy || !canSave || (row.id && !changed.length)}>{busy ? '저장 중…' : review ? '저장' : '변경 내용 확인'}</button>
       </div>
     </form>

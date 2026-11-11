@@ -11,9 +11,13 @@ const paths = {
   inquiry: <><path d="M21 11a8 8 0 0 1-8 8H7l-4 3V11a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z" /><path d="M8 9h8M8 13h5" /></>,
   reservation: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M7 3v4M17 3v4M3 11h18M8 15h2M14 15h2" /></>,
   notice: <><path d="m4 10 15-5v14L4 14zM4 10v4M7 15l2 6h3l-2-5M22 9v6" /></>,
+  payment: <><rect x="3" y="5" width="18" height="14" rx="3" /><path d="M3 10h18M7 15h4" /></>,
   request: <><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4V2h6v2M8 13l3 3 5-6" /></>,
 };
 
+// names that share a glyph but belong to another group, so their colour (ui.css) tells the groups apart
+const aliases = { rules: 'features', fields: 'features', choices: 'features', data: 'table', schedule: 'reservation' };
+
 export default function SectionIcon({ name }) {
-  return <span className="section-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg></span>;
+  return <span className="section-icon" data-icon={name} aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[aliases[name] || name]}</svg></span>;
 }

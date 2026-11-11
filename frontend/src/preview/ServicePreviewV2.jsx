@@ -4,6 +4,7 @@ import { recordsFromRows, safeWebUrl } from './config.js';
 import { chartConfigsV2, columnId, columnLabel, validateConfigV2 } from './configV2.js';
 import './preview.css';
 import SectionIcon from '../components/SectionIcon';
+import { Empty, IconButton, Pager, Segmented } from '../components/ui';
 
 const labels = { cards: '카드 목록', table: '표 목록', grouped: '그룹 목록' };
 const display = (value) => value === null || value === undefined || String(value).trim() === '' ? '빈 값' : String(value);
@@ -73,22 +74,14 @@ function ValidatedRuntime({ config, columns, records, chartAggregates }) {
   const record = records.find((item) => item.id === selectedRecord);
   const openDetail = (id) => setSelectedRecord(id);
   return <div className="service-runtime">
-    <div className="service-preview-meta"><span>{records.length.toLocaleString()}개 항목</span>
-      <span>{config.views.length.toLocaleString()}개 목록 화면</span></div>
     {record ? <>
-      <button type="button" className="service-back-button" onClick={() => setSelectedRecord(null)}>목록으로 돌아가기</button>
-      <h2>항목 상세</h2>
+      <div className="resource-trail"><IconButton icon="back" label="목록으로" onClick={() => setSelectedRecord(null)} /><strong>상세</strong></div>
       <Fields record={record} columns={columns} numbers={columns.map((_, index) => index + 1)} />
     </> : <>
-      <nav className="service-view-tabs" aria-label="서비스 미리보기 화면 선택">
-        {config.views.map((item, index) => <button type="button" key={index}
-          aria-current={index === selectedIndex ? 'page' : undefined} onClick={() => setSelectedIndex(index)}>
-          <strong>{labels[item.template]}{config.views.filter((candidate) => candidate.template === item.template).length > 1 ? ` ${index + 1}` : ''}</strong>
-        </button>)}
-      </nav>
-      <h2>{labels[view.template]}</h2>
+      {config.views.length > 1 && <Segmented label="보기" value={selectedIndex} onChange={setSelectedIndex}
+        options={config.views.map((item, index) => ({ value: index, label: `${labels[item.template]}${config.views.filter((candidate) => candidate.template === item.template).length > 1 ? ` ${index + 1}` : ''}` }))} />}
       <Charts configs={chartConfigsV2(view.charts, columns)} records={records} aggregates={chartAggregates} />
-      {!records.length ? <p>표시할 항목이 없습니다.</p>
+      {!records.length ? <Empty>표시할 항목이 없습니다.</Empty>
         : view.template === 'cards' ? <Cards view={view} records={records} columns={columns} openDetail={openDetail} />
           : view.template === 'grouped' ? <Grouped view={view} records={records} columns={columns} openDetail={openDetail} />
             : <Table view={view} records={records} columns={columns} openDetail={openDetail} />}
@@ -156,19 +149,13 @@ export default function ServicePreviewV2({ uploadId, report, config, usedFallbac
 
   return <section className="panel" aria-labelledby="service-preview-title">
     <div className="section-title"><h2 id="service-preview-title" className="icon-heading"><SectionIcon name="analysis" />데이터 통계</h2>
-      <button type="button" className="service-back-button" onClick={() => setOpened(!opened)} aria-expanded={opened}>
-        {opened ? '접기' : '펼치기'}
-      </button></div>
-    <p className="muted">{browseAll ? `전체 ${report.row_count.toLocaleString()}개 항목 기준입니다.` : loading ? '전체 데이터를 집계하는 중입니다.' : `처음 ${records.length.toLocaleString()}개 항목 기준입니다.`}</p>
-    {usedFallback && <p className="notice">기본 표 형식으로 표시합니다.</p>}
+      <span className="section-tools"><span className="section-count">{report.row_count.toLocaleString()}행</span>
+        <IconButton icon="down" label={opened ? '접기' : '펼치기'} className={opened ? 'is-flipped' : ''} aria-expanded={opened} onClick={() => setOpened(!opened)} /></span></div>
+    {loading && !browseAll && <p className="muted" role="status">집계하는 중…</p>}
     {opened && <>
       <PreviewRuntimeV2 key={String(browseAll)} config={config} columns={report.columns} records={records}
         chartAggregates={browseAll ? chartAggregates : null} />
-      {browseAll && report.row_count > 20 && <nav className="service-pagination" aria-label="데이터 페이지">
-        <button type="button" disabled={loading || page === 1} onClick={() => openPage(page - 1)}>이전 20행</button>
-        <span>{page.toLocaleString()} / {totalPages.toLocaleString()}페이지</span>
-        <button type="button" disabled={loading || page === totalPages} onClick={() => openPage(page + 1)}>다음 20행</button>
-      </nav>}
+      {browseAll && <Pager page={page} count={report.row_count} disabled={loading} onPage={openPage} />}
       {error && <p className="error" role="alert">{error}</p>}
     </>}
   </section>;

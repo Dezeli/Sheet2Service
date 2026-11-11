@@ -143,3 +143,82 @@
 
 .schedule-jump { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; font-size: .85rem; }
 .schedule-jump input { min-height: 38px; }
+
+.service-page .chip:disabled { color: #a0a8b3; background: #f4f6f8; border-color: #e5e9ef; cursor: not-allowed; }
+.service-page .chip.is-taken > span:first-child { text-decoration: line-through; }
+.reserve-rule { margin: -6px 0 0; font-size: .88rem; }
+.rules-form { display: grid; gap: 18px; border: 0; padding: 0; margin: 12px 0 0; min-width: 0; }
+.rules-group { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 0; min-width: 0; }
+.rules-group legend { font-weight: 700; padding: 0 6px; }
+.rules-group p { margin: 0; font-size: .88rem; }
+.rules-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 8px; }
+.rules-option { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: white; cursor: pointer; }
+.rules-option.is-selected { border-color: var(--action-accent, #1f6b65); background: var(--teal-light, #eef6f4); }
+.rules-option input { margin-top: 4px; }
+.rules-option span { display: grid; gap: 2px; }
+.rules-option small { font-size: .8rem; line-height: 1.4; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); gap: 10px; }
+.rules-grid label, .rules-limit { display: grid; gap: 4px; font-size: .85rem; }
+.rules-limit input { max-width: 160px; }
+.session-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+@media (max-width: 640px) { .session-row { grid-template-columns: 1fr 1fr; } .session-row > span { display: none; } }
+.rules-generator { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.rules-generator label { display: grid; gap: 4px; font-size: .85rem; }
+.rules-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rules-found li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.rules-found .service-title-button { text-align: left; overflow-wrap: anywhere; }
+.reserve-person { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.reserve-person label { display: grid; gap: 6px; }
+.booking-phone { display: block; font-variant-numeric: tabular-nums; }
+.my-lookup { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 14px; padding: 12px 14px; border-radius: 12px; background: var(--teal-light, #eef6f4); }
+.my-lookup label { display: grid; gap: 4px; font-size: .85rem; flex: 1 1 180px; }
+.schedule-views { margin-bottom: 14px; }
+.calendar-picker { display: grid; gap: 8px; }
+.resource-calendar { display: grid; gap: 10px; }
+.calendar-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.calendar-title p { margin: 4px 0 0; font-size: .88rem; }
+.month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.month-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 104px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.month-cell.is-blank { border: 0; background: transparent; }
+.month-cell.is-today { background: #f3faf8; }
+.month-cell.is-selected { box-shadow: inset 0 0 0 2px var(--action-accent, #1f6b65); }
+.month-cell.is-closed { background: #f4f6f8; }
+.month-cell.is-conflict { background: #fff1f1; box-shadow: inset 0 0 0 2px #e57373; }
+.service-page .month-day { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; min-height: 0; padding: 2px 4px; border: 0; background: transparent; color: var(--ink); font-weight: 700; box-shadow: none; }
+.service-page .month-day small { font-size: .68rem; font-weight: 600; color: var(--muted); }
+.month-cell.is-closed .month-day small, .month-cell.is-conflict .month-day small { color: #9b2c2c; }
+.service-page .month-more { min-height: 0; padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-size: .72rem; font-weight: 600; text-align: left; box-shadow: none; }
+.service-page .month-cell .schedule-item { margin: 0; padding: 2px 6px; }
+.service-page .month-cell .schedule-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-panel { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.day-panel h3 { margin: 0; font-size: 1rem; }
+.day-panel p { margin: 0; }
+.service-page .day-panel .chip { cursor: default; }
+.day-bookings { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+@media (max-width: 640px) {
+  .month-cell { min-height: 64px; }
+  .month-cell .schedule-item, .month-more { display: none; }
+}
+
+.combobox { position: relative; min-width: 0; }
+.combobox-field { position: relative; display: flex; align-items: center; }
+.service-page .combobox-field input { width: 100%; min-height: 44px; padding-right: 64px; text-overflow: ellipsis; }
+.combobox.is-open .combobox-field input { border-color: var(--action-accent, #1f6b65); box-shadow: 0 0 0 3px rgba(31, 107, 101, .12); }
+.combobox-mark { position: absolute; right: 12px; color: var(--muted); pointer-events: none; transition: transform .15s; }
+.combobox.is-open .combobox-mark { transform: rotate(180deg); }
+.service-page .combobox-clear { position: absolute; right: 34px; min-height: 0; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: #eef1f5; color: var(--muted); font-size: 1rem; line-height: 1; box-shadow: none; }
+.combobox-path { display: block; margin-top: 4px; font-size: .8rem; }
+.combobox-popup { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 12px 32px rgba(15, 23, 42, .14); overflow: hidden; }
+.combobox-popup ul { list-style: none; margin: 0; padding: 4px; max-height: min(340px, 50vh); overflow-y: auto; overscroll-behavior: contain; }
+.combobox-popup li[role=option] { display: grid; gap: 1px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.combobox-popup li[role=option] small { font-size: .75rem; overflow-wrap: anywhere; }
+.combobox-popup li.is-active { background: var(--teal-light, #eef6f4); }
+.combobox-popup li.is-current .combobox-name { font-weight: 700; color: var(--action-accent, #1f6b65); }
+.combobox-popup li.is-current .combobox-name::after { content: ' ✓'; }
+.combobox-popup mark { background: #fff1b8; color: inherit; border-radius: 2px; }
+.combobox-group { padding: 8px 10px 2px; font-size: .72rem; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.combobox-badge { justify-self: start; padding: 0 6px; border-radius: 999px; background: #eef1f5; color: var(--muted); }
+.combobox-empty { padding: 12px 10px; color: var(--muted); font-size: .88rem; }
+.combobox-foot { padding: 6px 12px; border-top: 1px solid #edf2f8; font-size: .75rem; }
+.booking-filter-wide { flex: 1 1 280px; min-width: 0; }
+.calendar-rule { margin: 0; font-size: .88rem; }
