@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .analysis import MAX_BYTES, TableError, analyze
+from .booking_rules import rules_of
 from .claude import InferenceError
 from .managed import ensure_imported, managed_chart_counts, managed_report, rows_page
 from .models import Upload
@@ -125,6 +126,9 @@ def landing_persona(config):
 
 def service_payload(upload):
     config = upload.service_config
+    # services built before booking rules existed get them derived on the way out
+    if "booking" in config:
+        config = {**config, "booking": {**config["booking"], "rules": rules_of(config)}}
     understanding = upload.understanding or {}
     return {"upload": payload(upload), "service": config,
             "understanding": {"questions": understanding.get("questions", []),

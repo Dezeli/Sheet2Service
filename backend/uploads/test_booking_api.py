@@ -38,23 +38,23 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
     def test_booker_reserves_a_room_for_a_date_then_admin_reviews(self):
         room = Resource.objects.get(upload=self.upload, path="변산 자연휴양림 / 우럭")
         org = room.parent
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "resource_id": str(org.id), "date": future(3),
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(org.id), "date": future(3),
                                                    "booker": "홍길동"}).status_code, 400)  # must pick the leaf
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "resource_id": str(room.id),
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id),
                                                    "booker": "홍길동"}).status_code, 400)  # date model needs a date
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "resource_id": str(room.id), "date": future(3)}).status_code, 400)
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3)}).status_code, 400)
         self.assertEqual(self.config["booking"]["unit"], "stay")  # 숙박일자 + 객실
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "resource_id": str(room.id), "date": future(3),
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3),
                                                    "end_date": future(3), "booker": "홍길동"}).status_code, 400)  # a stay needs a night
-        created = self.mutate("bookings/", {"persona": "booker", "resource_id": str(room.id), "date": future(3), "end_date": future(5),
+        created = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3), "end_date": future(5),
                                             "booker": "홍길동", "party_size": 3, "purpose": "가족 여행"})
         self.assertEqual(created.status_code, 201, created.data)
         self.assertEqual(created.data["status"], "requested")  # approval mode
         self.assertTrue(created.data["mine"])
         self.assertEqual(created.data["events"][0]["to"], "requested")
         # the same room on the same day is taken (capacity defaults to one)
-        second = self.mutate("bookings/", {"persona": "booker", "resource_id": str(room.id), "date": future(4), "end_date": future(6), "booker": "김철수"})
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "resource_id": str(room.id), "date": future(5), "end_date": future(7),
+        second = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(4), "end_date": future(6), "booker": "김철수"})
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(5), "end_date": future(7),
                                                    "booker": "박영희"}).status_code, 201)  # checkout day is free again
         self.assertEqual(second.status_code, 400)
         self.assertIn("가득", second.data["detail"])
@@ -75,6 +75,19 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(other.get(self.base + "bookings/?persona=booker").status_code, 404)
         self.assertEqual(self.client.post(self.base + "bookings/", {"persona": "booker"}, format="json").status_code, 403)
 
+    def test_bulk_action_applies_where_it_fits_and_skips_the_rest(self):
+        waiting = [item["id"] for item in self.client.get(self.base + "bookings/?persona=admin&status=requested").data["bookings"]]
+        settled = self.client.get(self.base + "bookings/?persona=admin&status=approved").data["bookings"][0]["id"]
+        url = "bookings/bulk/"
+        self.assertEqual(self.mutate(url, {"persona": "booker", "action": "approve", "ids": waiting}).status_code, 400)
+        self.assertEqual(self.mutate(url, {"persona": "admin", "action": "approve", "ids": []}).status_code, 400)
+        self.assertEqual(self.mutate(url, {"persona": "admin", "action": "reject", "ids": waiting}).status_code, 400)  # needs a reason
+        result = self.mutate(url, {"persona": "admin", "action": "approve", "ids": [*waiting, settled]})
+        self.assertEqual(result.status_code, 200, result.data)
+        self.assertEqual((result.data["done"], result.data["skipped"]), (2, 1))
+        self.assertEqual(Booking.objects.filter(pk__in=waiting, status="approved").count(), 2)
+        self.assertEqual(Booking.objects.get(pk=waiting[0]).events.count(), 1)
+
     def test_admin_list_filters_stats_and_imported_records(self):
         everything = self.client.get(self.base + "bookings/?persona=admin").data
         self.assertEqual(everything["count"], 10)
@@ -90,6 +103,7 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
         stats = self.client.get(self.base + "bookings/stats/?persona=admin").data
         self.assertEqual((stats["total"], stats["counts"]["requested"], stats["counts"]["approved"], stats["imported"]), (10, 1, 5, 10))
         self.assertEqual(stats["top_resources"][0]["count"], 3)
+        self.assertEqual(set(stats["payments"]), {"paid", "unpaid", "unpaid_amount"})
 
     def test_org_manager_sees_only_its_organization(self):
         scopes = self.client.get(self.base + "bookings/scopes/?persona=org_manager").data
@@ -134,14 +148,14 @@ class CatalogApiTests(ServiceClientMixin, APITestCase):
         igloo = Resource.objects.get(upload=self.upload, name="이글루A")
         self.assertEqual(igloo.capacity, 5)
         for index in range(5):
-            response = self.mutate("bookings/", {"persona": "booker", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": f"손님{index}"})
+            response = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": f"손님{index}"})
             self.assertEqual(response.status_code, 201, response.data)
             self.assertEqual(response.data["status"], "approved")
         self.assertEqual(self.config["booking"]["unit"], "stay")  # 캠핑장
-        full = self.mutate("bookings/", {"persona": "booker", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": "손님6"})
+        full = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": "손님6"})
         self.assertEqual(full.status_code, 400)
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "resource_id": str(igloo.id), "date": future(8), "end_date": future(9), "booker": "손님7"}).status_code, 201)
-        past = self.mutate("bookings/", {"persona": "booker", "resource_id": str(igloo.id), "date": "2020-01-01", "end_date": "2020-01-02", "booker": "옛날"})
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(8), "end_date": future(9), "booker": "손님7"}).status_code, 201)
+        past = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": "2020-01-01", "end_date": "2020-01-02", "booker": "옛날"})
         self.assertEqual(past.status_code, 400)
         self.assertEqual(self.client.get(self.base + "bookings/stats/?persona=admin").data["new"], 6)
 
@@ -158,10 +172,10 @@ class SlotsApiTests(ServiceClientMixin, APITestCase):
         slot = Slot.objects.get(upload=self.upload, imported_count=17)
         updated = self.mutate(f"slots/{slot.id}/", {"persona": "admin", "capacity": 18}, "patch")
         self.assertEqual(updated.data["remaining"], 1)
-        booked = self.mutate("bookings/", {"persona": "booker", "slot_id": str(slot.id), "booker": "참가자"})
+        booked = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "참가자"})
         self.assertEqual(booked.status_code, 201, booked.data)
         self.assertEqual((booked.data["time_slot"], booked.data["date"]), ("오전10시~12시", "2026-04-16"))
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "slot_id": str(slot.id), "booker": "늦은 참가자"}).status_code, 400)
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "늦은 참가자"}).status_code, 400)
         listed = self.client.get(self.base + f"slots/?resource={slot.resource_id}").data["slots"]
         self.assertEqual(next(item for item in listed if item["id"] == str(slot.id))["remaining"], 0)
         closed = self.mutate(f"slots/{slot.id}/", {"persona": "admin", "closed": True}, "patch")
@@ -183,6 +197,9 @@ class PaymentApiTests(ServiceClientMixin, APITestCase):
 
     def test_finance_sees_payments_and_marks_them_but_cannot_approve(self):
         unpaid = self.client.get(self.base + "bookings/?persona=finance&payment=unpaid").data
+        summary = self.client.get(self.base + "bookings/stats/?persona=finance").data["payments"]
+        self.assertEqual(summary["paid"], 2)
+        self.assertEqual(summary["unpaid"], unpaid["count"] - sum(item["status"] in ("cancelled", "rejected", "lost") for item in unpaid["bookings"]))
         self.assertEqual(unpaid["count"], 3)
         self.assertEqual(self.client.get(self.base + "bookings/?persona=finance&payment=paid").data["count"], 2)
         booking = unpaid["bookings"][0]["id"]
@@ -244,3 +261,50 @@ class ScheduleApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(self.client.get(self.base + "bookings/schedule/?persona=org_manager&from=2026-03-02").status_code, 400)
         scoped = self.client.get(self.base + "bookings/schedule/?persona=org_manager&from=2026-03-02&scope=유명산 자연휴양림").data
         self.assertTrue(all(item["path"].startswith("유명산") for item in scoped["resources"]))
+
+
+class ResourceMonthTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return model_answer()
+
+    def test_one_resource_over_a_month(self):
+        room = Resource.objects.get(upload=self.upload, path="변산 자연휴양림 / 우럭")
+        month = self.client.get(self.base + f"bookings/schedule/?persona=admin&from=2026-03-01&days=31&resource={room.id}").data
+        self.assertEqual([item["id"] for item in month["resources"]], [str(room.id)])
+        self.assertEqual(len(month["days"]), 31)
+        self.assertIn("2026-03-03", month["resources"][0]["days"])
+
+
+class FlatResourceListTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return model_answer()
+
+    def test_leaves_in_path_order_filtered_as_you_type(self):
+        leaves = self.client.get(self.base + "resources/?flat=leaf").data
+        self.assertEqual([item["path"] for item in leaves["resources"]],
+                         ["변산 자연휴양림 / 바다향기5", "변산 자연휴양림 / 우럭", "유명산 자연휴양림 / 소나무", "유명산 자연휴양림 / 크낙새"])
+        self.assertEqual(self.client.get(self.base + "resources/?flat=any").data["count"], 6)
+        self.assertEqual([item["name"] for item in self.client.get(self.base + "resources/?flat=leaf&q=유명산").data["resources"]], ["소나무", "크낙새"])
+
+
+class BusiestFirstTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return model_answer()
+
+    def test_the_week_lists_the_busiest_items_first(self):
+        quiet = Resource.objects.get(upload=self.upload, path="유명산 자연휴양림 / 소나무")
+        for name in ("가", "나", "다"):
+            Booking.objects.create(upload=self.upload, resource=quiet, date=date(2026, 3, 4), status="approved", booker=name)
+        week = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2026-03-02&days=7").data
+        counts = [row["count"] for row in week["resources"]]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+        self.assertEqual(week["resources"][0]["name"], "소나무")
+        self.assertTrue(all(row["count"] > 0 for row in week["resources"]))
+        empty = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2030-01-07&days=7").data
+        self.assertEqual(empty["resources"], [])

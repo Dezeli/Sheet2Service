@@ -81,3 +81,16 @@ class NoticeApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(Notice.objects.count(), 1)
         self.rebuild(notice_answer())
         self.assertEqual(self.client.get(self.base + "notices/").data["count"], 1)
+
+
+class NoticeDeleteTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return notice_answer()
+
+    def test_an_admin_deletes_a_notice(self):
+        created = self.mutate("notices/", {"title": "운영 안내", "body": "공지 내용", "is_published": True})
+        self.assertEqual(self.mutate(f"notices/{created.data['id']}/", {}, "delete").status_code, 204)
+        self.assertFalse(Notice.objects.filter(pk=created.data["id"]).exists())
+        self.assertEqual(self.mutate(f"notices/{created.data['id']}/", {}, "delete").status_code, 404)

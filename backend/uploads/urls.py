@@ -3,7 +3,7 @@ from django.urls import path
 from .views import BootstrapView, ChartCountsView, DetailView, GenerateView, OriginalView, RowsView, ServiceView, UploadView
 from .admin_views import FieldChoicesView, FieldChoiceView, FieldLabelView, ManagedRowsView, ManagedRowView
 from .understanding_views import UnderstandingView
-from .booking_views import (AvailabilityView, BookingStatsView, BookingView, BookingsView, ResourceFacetsView, ResourceView, ResourcesView, ScopesView,
+from .booking_views import (AvailabilityView, BookingBulkView, BookingRulesView, BookingStatsView, BookingView, BookingsView, ResourceFacetsView, ResourceView, ResourcesView, ScopesView,
                             SlotView, SlotsView)
 from .schedule_views import ScheduleView
 from .inquiry_views import InquiriesView, InquiryView, InquiryStatsView
@@ -23,7 +23,9 @@ urlpatterns = [
     path("uploads/<uuid:pk>/slots/<uuid:slot_id>/", SlotView.as_view()),
     path("uploads/<uuid:pk>/bookings/", BookingsView.as_view()),
     path("uploads/<uuid:pk>/bookings/stats/", BookingStatsView.as_view()),
+    path("uploads/<uuid:pk>/bookings/bulk/", BookingBulkView.as_view()),
     path("uploads/<uuid:pk>/bookings/availability/", AvailabilityView.as_view()),
+    path("uploads/<uuid:pk>/booking-rules/", BookingRulesView.as_view()),
     path("uploads/<uuid:pk>/bookings/schedule/", ScheduleView.as_view()),
     path("uploads/<uuid:pk>/bookings/scopes/", ScopesView.as_view()),
     path("uploads/<uuid:pk>/bookings/<uuid:booking_id>/", BookingView.as_view()),

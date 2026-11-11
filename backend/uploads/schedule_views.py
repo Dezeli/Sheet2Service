@@ -8,7 +8,8 @@ from django.utils.dateparse import parse_date as iso_date
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from .booking_views import ACTIVE, WHOLE_DAY, identifier, scope_filter
+from .booking_rules import ACTIVE, day_window, limit_of, occupancy, peak, rule_owners, rules_for
+from .booking_views import identifier, scope_filter
 from .models import Booking, Resource
 from .service_access import requested_persona, service_upload
 from .views import SessionView
@@ -37,35 +38,11 @@ def _days_of(booking):
         yield timezone.localtime(booking.starts_at).date()
 
 
-def _timed(booking):
-    if not (booking.starts_at and booking.ends_at):
-        return None
-    start, end = timezone.localtime(booking.starts_at), timezone.localtime(booking.ends_at)
-    if start.date() == end.date() and ((start.hour, start.minute) != (0, 0) or (end.hour, end.minute) != (0, 0)):
-        return start, end
-    return None
-
-
-def overbooked(items, capacity):
-    """How many bookings exceed the capacity on one day: by clock overlap, by slot, or by plain count."""
-    active = [item for item in items if item.status in ACTIVE]
-    if len(active) <= capacity:
-        return 0
-    timed = [_timed(item) for item in active]
-    if all(timed):
-        events = sorted([(start, 1) for start, _ in timed] + [(end, -1) for _, end in timed], key=lambda e: (e[0], e[1]))
-        peak = current = 0
-        for _, delta in events:
-            current += delta
-            peak = max(peak, current)
-        return max(0, peak - capacity)
-    if any(item.time_slot for item in active):
-        whole = sum(1 for item in active if not item.time_slot or item.time_slot in WHOLE_DAY)
-        worst = whole
-        for slot in {item.time_slot for item in active if item.time_slot and item.time_slot not in WHOLE_DAY}:
-            worst = max(worst, whole + sum(1 for item in active if item.time_slot == slot))
-        return max(0, worst - capacity)
-    return len(active) - capacity
+def overbooked(items, limit, rules, day):
+    """How far the day's peak load goes over the limit, with the same intervals the booking check uses."""
+    held = [occupancy(item, rules) for item in items if item.status in ACTIVE]
+    start, end = day_window(day)
+    return max(0, peak(start, end, "", [item for item in held if item]) - limit)
 
 
 def brief(booking):
@@ -95,6 +72,8 @@ class ScheduleView(SessionView):
         window = [start + timedelta(days=i) for i in range(days)]
 
         resources = Resource.objects.filter(upload=upload, active=True).annotate(children_total=Count("children")).filter(children_total=0)
+        if params.get("resource"):  # one resource's month, for the calendar view
+            resources = resources.filter(pk=identifier(params["resource"]))
         if params.get("q"):
             resources = resources.filter(path__icontains=params["q"][:100])
         if params.get("group"):
@@ -117,32 +96,40 @@ class ScheduleView(SessionView):
             for day in _days_of(booking):
                 if start <= day < end:
                     per_resource.setdefault(booking.resource_id, {}).setdefault(day, []).append(booking)
-        capacities = {resource.pk: resource.capacity or 1 for resource in resources}
+        owners = rule_owners(upload)
+        ruled = {resource.pk: rules_for(config, resource, owners)[0] for resource in resources}
+        capacities = {resource.pk: limit_of(resource, ruled[resource.pk]) for resource in resources}
         conflicts = {}
         for resource_id, by_day in per_resource.items():
             for day, items in by_day.items():
-                extra = overbooked(items, capacities.get(resource_id, 1))
+                extra = overbooked(items, capacities[resource_id], ruled[resource_id], day)
                 if extra:
                     conflicts[(resource_id, day)] = extra
         if params.get("conflicts_only") == "1":
             wanted = {resource_id for resource_id, _ in conflicts}
             resources = resources.filter(pk__in=wanted)
+        # the busiest items of the window first, so the week's work reads from the top; the path breaks ties
+        held = {resource_id: len({item.pk for items in by_day.values() for item in items}) for resource_id, by_day in per_resource.items()}
+        resources = sorted(resources, key=lambda resource: (-held.get(resource.pk, 0), resource.path))
+        if not params.get("resource"):  # the week lists only what is booked; one resource's month always shows
+            resources = [resource for resource in resources if held.get(resource.pk)]
         try:
             page = int(params.get("page", "1"))
         except ValueError:
             fail("페이지 번호가 올바르지 않습니다.")
-        total = resources.count()
+        total = len(resources)
         if page < 1 or page > max(1, (total + PAGE - 1) // PAGE):
             fail("페이지 번호가 범위를 벗어났습니다.")
         rows = []
         for resource in resources[(page - 1) * PAGE:page * PAGE]:
             by_day = per_resource.get(resource.pk, {})
             rows.append({"id": str(resource.id), "name": resource.name, "path": resource.path, "capacity": resource.capacity,
+                         "count": held.get(resource.pk, 0),
                          "days": {day.isoformat(): [brief(item) for item in by_day.get(day, [])] for day in window if by_day.get(day)},
                          "conflicts": {day.isoformat(): conflicts[(resource.pk, day)] for day in window if (resource.pk, day) in conflicts}})
         names = {resource.pk: resource for resource in resources} if conflicts else {}
         conflict_list = [{"resource": str(resource_id), "name": names[resource_id].name if resource_id in names else "", "path": names[resource_id].path if resource_id in names else "",
-                          "date": day.isoformat(), "extra": extra, "capacity": capacities.get(resource_id, 1)}
+                          "date": day.isoformat(), "extra": extra, "capacity": capacities.get(resource_id)}
                          for (resource_id, day), extra in sorted(conflicts.items(), key=lambda item: (item[0][1], str(item[0][0])))]
         return Response({"from": start.isoformat(), "days": [day.isoformat() for day in window], "page": page, "count": total,
                          "has_next": page * PAGE < total, "resources": rows, "conflicts": conflict_list[:200],

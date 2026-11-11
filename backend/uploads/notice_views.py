@@ -98,3 +98,8 @@ class NoticeView(SessionView):
                 setattr(item, field, value)
             item.save(update_fields=[*values, "published_at", "updated_at"])
         return Response(payload(item))
+
+    def delete(self, request, pk, notice_id):
+        upload = notice_upload(request, pk)
+        get_object_or_404(Notice, upload=upload, pk=notice_id).delete()
+        return Response(status=204)

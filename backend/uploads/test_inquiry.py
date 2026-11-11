@@ -83,3 +83,28 @@ class InquiryTests(ServiceClientMixin, APITestCase):
         self.assertEqual(self.client.get(self.base + "?page=bad").status_code, 400)
         self.assertEqual(self.mutate(second.data["inquiries"][0]["id"] + "/",
                                      {"answer": "Answer", "status": "approved"}, "patch").status_code, 400)
+
+    def test_status_filter_and_delete(self):
+        first = self.mutate("", {"title": "One", "body": "Details"}).data
+        second = self.mutate("", {"title": "Two", "body": "Details"}).data
+        self.mutate(second["id"] + "/", {"answer": "Answer", "status": "resolved"}, "patch")
+        waiting = self.client.get(self.base + "?status=received").data
+        self.assertEqual([item["id"] for item in waiting["inquiries"]], [first["id"]])
+        self.assertEqual(self.client.get(self.base + "?status=bad").status_code, 400)
+        self.assertEqual(self.mutate(first["id"] + "/", {}, "delete").status_code, 204)
+        self.assertFalse(Inquiry.objects.filter(pk=first["id"]).exists())
+        self.assertEqual(self.mutate(first["id"] + "/", {}, "delete").status_code, 404)
+
+
+class InquiryResourceSubjectTests(ServiceClientMixin, APITestCase):
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return model_answer()
+
+    def test_a_resource_names_the_subject(self):
+        from .models import Resource
+        room = Resource.objects.get(upload=self.upload, path="변산 자연휴양림 / 우럭")
+        created = self.mutate("inquiries/", {"title": "문의", "body": "내용", "resource_id": str(room.id)})
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(created.data["subject"], "변산 자연휴양림 / 우럭")

@@ -5,7 +5,8 @@ from collections import Counter
 from datetime import date as date_type
 
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date as iso_date, parse_datetime as iso_datetime
@@ -13,15 +14,17 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
+from .booking_rules import (ACTIVE, WHOLE_DAY, RuleError, default_rules, ensure_capacity, ensure_per_person,  # noqa: F401
+                            month_states, normalize_request, occupancy, one_day, rule_owners, rules_for, rules_of,
+                            validate_rules)
 from .models import Booking, BookingEvent, Resource, Slot
-from .reservation_service import parse_int
+from .reservation_service import parse_int, phone_digits
 from .service_access import REVIEW_PERSONAS, requested_persona, service_upload
 from .views import SessionView
 
 PAGE = 20
-ACTIVE = ("requested", "approved", "in_use", "waiting", "won")
+FLAT_PAGE = 50
 # action -> (allowed from, to). Reviewers may take every action; bookers only cancel their own.
-WHOLE_DAY = ("전일", "종일", "하루", "전체", "1일")
 PAID = Q(payment__iregex=r"(완료|납부|결제됨|^y$|^yes$|^paid$|^true$)")
 PAYMENT_ACTIONS = {"mark_paid": "결제완료", "mark_unpaid": "미결제"}
 ACTIONS = {
@@ -73,9 +76,17 @@ def resource_payload(resource, children=None, bookings=None):
             "booking_count": bookings if bookings is not None else resource.bookings.filter(status__in=ACTIVE).count()}
 
 
+# A slot's capacity counts people, like the attendance the sheet recorded on it.
+SLOT_PEOPLE = Sum(Coalesce("bookings__party_size", Value(1)), filter=Q(bookings__status__in=ACTIVE))
+
+
+def slot_people(slot):
+    return slot.bookings.filter(status__in=ACTIVE).aggregate(n=Sum(Coalesce("party_size", Value(1))))["n"] or 0
+
+
 def slot_payload(slot, booked=None):
     if booked is None:
-        booked = slot.bookings.filter(status__in=ACTIVE).count()
+        booked = slot_people(slot)
     remaining = None if slot.capacity is None else max(0, slot.capacity - slot.imported_count - booked)
     return {"id": str(slot.id), "resource": str(slot.resource_id) if slot.resource_id else None,
             "resource_name": slot.resource.name if slot.resource_id else "",
@@ -86,11 +97,46 @@ def slot_payload(slot, booked=None):
             "booked": booked, "remaining": remaining, "closed": slot.closed}
 
 
-def booking_payload(item, session_key="", events=False):
+def format_phone(digits):
+    if not digits:
+        return ""
+    head = 2 if digits.startswith("02") else 3
+    return f"{digits[:head]}-{digits[head:-4]}-{digits[-4:]}"
+
+
+def mask_phone(digits):
+    if not digits:
+        return ""
+    head = 2 if digits.startswith("02") else 3
+    return f"{digits[:head]}-{'*' * len(digits[head:-4])}-{digits[-4:]}"
+
+
+def lookup_of(source):
+    """(name, phone) a booker names themself by instead of the browser session; None when neither is given."""
+    name = str(source.get("name") or "").strip()
+    raw = source.get("phone") or ""
+    if not name and not raw:
+        return None
+    phone = phone_digits(raw)
+    if not name or not phone:
+        fail("예약할 때 입력한 이름과 전화번호를 함께 입력해 주세요.")
+    return name[:200], phone
+
+
+def owns(booking, session_key, lookup):
+    if session_key and booking.created_by_session == session_key:
+        return True
+    return bool(lookup) and booking.phone == lookup[1] and booking.booker.strip().lower() == lookup[0].lower()
+
+
+def booking_payload(item, session_key="", events=False, lookup=None, reveal=False):
+    """reveal shows the whole phone number: to the booker for their own, to reviewers in the detail only."""
+    mine = owns(item, session_key, lookup)
     payload = {"id": str(item.id),
                "resource": {"id": str(item.resource_id), "name": item.resource.name, "path": item.resource.path} if item.resource_id else None,
                "slot": str(item.slot_id) if item.slot_id else None,
-               "booker": item.booker, "party_size": item.party_size,
+               "booker": item.booker, "phone": format_phone(item.phone) if reveal else mask_phone(item.phone),
+               "party_size": item.party_size,
                "date": item.date.isoformat() if item.date else None,
                "starts_at": item.starts_at.isoformat() if item.starts_at else None,
                "ends_at": item.ends_at.isoformat() if item.ends_at else None,
@@ -101,7 +147,7 @@ def booking_payload(item, session_key="", events=False):
                "requested_at": item.requested_at.isoformat() if item.requested_at else None,
                "created_at": item.created_at.isoformat(), "updated_at": item.updated_at.isoformat(),
                "imported": item.source_row_id is not None,
-               "mine": bool(session_key) and item.created_by_session == session_key}
+               "mine": mine}
     if events:
         payload["events"] = [{"from": event.from_status, "to": event.to_status, "persona": event.persona,
                               "note": event.note, "at": event.created_at.isoformat()} for event in item.events.all()]
@@ -135,6 +181,7 @@ def column_label(config, number):
 
 SUMMARY_KEYS = ("기록 건수", "기록 기준 금액", "자주 쓰인 시간대", "평균 인원", "평균 이용 기간", "원본 코드")
 MAX_FACET_VALUES = 12
+CLOCK_VALUE = re.compile(r"^\d{1,2}:\d{2}$")
 MAX_GROUP_CHIPS = 20
 
 
@@ -167,6 +214,8 @@ def resource_facets(upload):
             values.setdefault(key, Counter())[text[:60]] += 1
     facets = []
     for key, counter in values.items():
+        if all(CLOCK_VALUE.match(value) for value in counter):
+            continue  # opening and closing hours describe the place; nobody filters by them
         if 2 <= len(counter) <= MAX_FACET_VALUES and sum(counter.values()) >= 2 and key not in numbers:
             facets.append({"label": key, "values": [{"value": value, "count": count} for value, count in counter.most_common()]})
     capacity_values = sorted(numbers.get("정원", []))
@@ -204,6 +253,8 @@ class ResourcesView(SessionView):
         resources = Resource.objects.filter(upload=upload)
         if params.get("all") != "1":
             resources = resources.filter(active=True)
+        if params.get("flat") in ("leaf", "any"):
+            return Response(self.flat(upload, resources, params))
         query = (params.get("q") or "").strip()
         parent = params.get("parent")
         filters = [item.split(":", 1) for item in params.getlist("f") if ":" in item]
@@ -253,6 +304,25 @@ class ResourcesView(SessionView):
             items, paging = paginated(resources, request)
         return Response({**paging, "levels": upload.service_config["resources"]["levels"], "filtering": filtering,
                          "resources": [resource_payload(item, item.children_total, item.active_bookings) for item in items]})
+
+    def flat(self, upload, resources, params):
+        """Every resource (or only the bookable leaves) in path order, for a search-as-you-type dropdown."""
+        query = (params.get("q") or "").strip()[:100]
+        if query:
+            resources = resources.filter(path__icontains=query)
+        resources = resources.annotate(children_total=Count("children", distinct=True))
+        if params.get("flat") == "leaf":
+            resources = resources.filter(children_total=0)
+        resources = resources.order_by("path")
+        try:
+            offset = max(0, int(params.get("offset", "0")))
+        except ValueError:
+            fail("시작 위치가 올바르지 않습니다.")
+        count = resources.count()
+        items = resources[offset:offset + FLAT_PAGE]
+        return {"count": count, "offset": offset, "has_next": offset + FLAT_PAGE < count,
+                "resources": [{"id": str(item.id), "name": item.name, "path": item.path, "level": item.level,
+                               "capacity": item.capacity, "children_count": item.children_total} for item in items]}
 
     def post(self, request, pk):
         upload = service_upload(request, pk)
@@ -371,9 +441,9 @@ class SlotsView(SessionView):
         if request.query_params.get("available") == "1":
             today = timezone.localdate()
             slots = slots.filter(closed=False).filter(Q(date__gte=today) | Q(date__isnull=True, starts_at__gte=timezone.now()))
-        slots = slots.annotate(active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE))).order_by("date", "starts_at", "time_slot", "id")
+        slots = slots.annotate(active_people=SLOT_PEOPLE).order_by("date", "starts_at", "time_slot", "id")
         items, paging = paginated(slots, request)
-        return Response({**paging, "slots": [slot_payload(slot, slot.active_bookings) for slot in items]})
+        return Response({**paging, "slots": [slot_payload(slot, slot.active_people or 0) for slot in items]})
 
     def post(self, request, pk):
         upload = service_upload(request, pk)
@@ -437,32 +507,31 @@ class SlotView(SessionView):
         return Response({"deleted": True})
 
 
-def _capacity_check(upload, resource, slot, day, starts, ends, party, time_slot=""):
-    if slot is not None:
-        if slot.closed:
-            fail("마감된 일정입니다.")
-        if slot.capacity is not None:
-            taken = slot.imported_count + slot.bookings.filter(status__in=ACTIVE).count()
-            if taken + 1 > slot.capacity:
-                fail("이 일정은 정원이 가득 찼습니다.")
+def _slot_check(slot, party):
+    if slot.closed:
+        fail("마감된 일정입니다.")
+    if slot.capacity is not None:
+        remaining = slot.capacity - slot.imported_count - slot_people(slot)
+        if (party or 1) > remaining:
+            fail("이 일정은 정원이 가득 찼습니다." if remaining <= 0 else f"이 일정은 {remaining}명까지만 예약할 수 있습니다.")
+
+
+def _reopen_check(upload, booking):
+    """A booking coming back to life takes a place again, so it must still fit."""
+    if booking.slot_id:
+        _slot_check(Slot.objects.select_for_update().get(pk=booking.slot_id), booking.party_size)
         return
-    if resource is None:
+    if booking.resource_id is None:
         return
-    capacity = resource.capacity or 1
-    active = Booking.objects.filter(upload=upload, resource=resource, status__in=ACTIVE)
-    if starts and ends:
-        overlapping = active.filter(starts_at__lt=ends, ends_at__gt=starts).count()
-    elif day:
-        same_day = active.filter(date=day)
-        if time_slot:  # a morning booking does not block the afternoon, but a whole-day one blocks both
-            same_day = same_day.filter(Q(time_slot=time_slot) | Q(time_slot="") | Q(time_slot__in=WHOLE_DAY) | Q(time_slot=time_slot))
-            if time_slot in WHOLE_DAY:
-                same_day = active.filter(date=day)
-        overlapping = same_day.count()
-    else:
+    rules, _ = rules_for(upload.service_config, booking.resource)
+    held = occupancy(booking, rules)
+    if held is None:
         return
-    if overlapping + 1 > capacity:
-        fail("선택한 시간에 이 항목은 이미 예약이 가득 찼습니다.")
+    Resource.objects.select_for_update().get(pk=booking.resource_id)
+    try:
+        ensure_capacity(upload, booking.resource, rules, held[:3], booking.party_size)
+    except RuleError as exc:
+        fail(f"다시 열 수 없습니다. {exc}")
 
 
 class BookingsView(SessionView):
@@ -474,8 +543,13 @@ class BookingsView(SessionView):
         persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard", "manage_payments")
         session_key = request.session.session_key or ""
         bookings = Booking.objects.filter(upload=upload).select_related("resource")
+        lookup = None
         if persona["id"] == "booker" or request.query_params.get("mine") == "1":
-            bookings = bookings.filter(created_by_session=session_key) if session_key else bookings.none()
+            lookup = lookup_of(request.query_params)
+            if lookup:  # bookings made on any device under this name and number
+                bookings = bookings.filter(phone=lookup[1], booker__iexact=lookup[0])
+            else:
+                bookings = bookings.filter(created_by_session=session_key) if session_key else bookings.none()
         elif persona["id"] in ("staff", "org_manager"):
             scope = (request.query_params.get("scope") or "").strip()
             if not scope:
@@ -498,10 +572,15 @@ class BookingsView(SessionView):
             bookings = bookings.filter(date__lte=_date(request.query_params["to"], "종료일"))
         query = (request.query_params.get("q") or "").strip()[:100]
         if query:
-            bookings = bookings.filter(Q(booker__icontains=query) | Q(purpose__icontains=query) | Q(resource__path__icontains=query)
-                                       | Q(staff__icontains=query) | Q(organization__icontains=query) | Q(status_label__icontains=query))
+            matches = (Q(booker__icontains=query) | Q(purpose__icontains=query) | Q(resource__path__icontains=query)
+                       | Q(staff__icontains=query) | Q(organization__icontains=query) | Q(status_label__icontains=query))
+            digits = re.sub(r"\D", "", query)
+            if len(digits) >= 4:
+                matches |= Q(phone__contains=digits)
+            bookings = bookings.filter(matches)
         items, paging = paginated(bookings, request)
-        return Response({**paging, "bookings": [booking_payload(item, session_key) for item in items]})
+        return Response({**paging, "bookings": [booking_payload(item, session_key, lookup=lookup, reveal=lookup is not None or persona["id"] == "booker")
+                                                for item in items]})
 
     def post(self, request, pk):
         upload = service_upload(request, pk)
@@ -521,61 +600,61 @@ class BookingsView(SessionView):
             resource = get_object_or_404(Resource, pk=identifier(data["resource_id"]), upload=upload, active=True)
         elif Resource.objects.filter(upload=upload).exists():
             fail("예약할 항목을 선택해 주세요.")
-        if resource is not None and slot is None and resource.children.filter(active=True).exists():
-            fail("하위 항목까지 선택해 주세요.")
+        if resource is not None and slot is None:
+            children = list(resource.children.filter(active=True).values_list("name", flat=True)[:4])
+            if children:
+                fail(f'"{resource.name}"은(는) 묶음입니다. 그 안의 {", ".join(children[:3])}{" 등" if len(children) > 3 else ""} 중 하나를 골라 예약해 주세요.')
         day = _date(data.get("date"), "날짜")
         end_day = _date(data.get("end_date"), "종료일")
         starts, ends = _moment(data.get("starts_at"), "시작 시간"), _moment(data.get("ends_at"), "종료 시간")
         time_slot = text_field(data, "time_slot", 120)
-        if slot is not None:
-            day, starts, ends, time_slot = slot.date, slot.starts_at, slot.ends_at, slot.time_slot
-        else:
-            unit = booking_cfg.get("unit", "day")
-            if day is None and starts is None:
-                fail("예약 날짜를 선택해 주세요.")
-            if unit == "time_range":
-                if starts is None or ends is None:
-                    fail("시작과 종료 시각을 선택해 주세요.")
-                if timezone.localtime(starts).date() != timezone.localtime(ends).date():
-                    fail("시작과 종료는 같은 날이어야 합니다.")
-            elif unit in ("stay", "period"):
-                if end_day is None:
-                    end_day = day if unit == "period" else None
-                if end_day is None or end_day < day or (unit == "stay" and end_day == day):
-                    fail("퇴실일은 입실일 다음 날 이후여야 합니다." if unit == "stay" else "종료일은 시작일 이후여야 합니다.")
-                if (end_day - day).days > 60:
-                    fail("한 번에 60일을 넘는 기간은 예약할 수 없습니다.")
-                midnight = timezone.datetime.min.time()
-                starts = timezone.make_aware(timezone.datetime.combine(day, midnight))
-                # a stay ends at checkout morning; a period covers its last day too
-                ends = timezone.make_aware(timezone.datetime.combine(end_day + (timezone.timedelta(days=0) if unit == "stay" else timezone.timedelta(days=1)), midnight))
-            elif unit == "time_slot" and not time_slot and booking_cfg.get("slotOptions"):
-                fail("시간대를 선택해 주세요.")
-            if starts and ends and ends <= starts:
-                fail("종료 시간은 시작 시간 이후여야 합니다.")
-            if day is None and starts is not None:
-                day = timezone.localtime(starts).date()
-            moment = starts or (timezone.make_aware(timezone.datetime.combine(day, timezone.datetime.min.time())) if day else None)
-            if moment is not None and persona["id"] == "booker" and moment < timezone.now() - timezone.timedelta(days=1):
-                fail("지난 날짜는 예약할 수 없습니다.")
         party = data.get("party_size")
         if party is not None and (type(party) is not int or not 1 <= party <= 100_000):
             fail("인원은 1 이상의 정수로 입력해 주세요.")
-        booker = text_field(data, "booker", 200, required=bool(booking_cfg.get("bookerColumn")) and persona["id"] == "booker")
+        rules, owner = rules_for(config, resource)
+        window = None
+        if slot is not None:
+            day, starts, ends, time_slot = slot.date, slot.starts_at, slot.ends_at, slot.time_slot
+        else:
+            try:
+                moment = normalize_request(rules, day=day, end_day=end_day, starts=starts, ends=ends, time_slot=time_slot)
+            except RuleError as exc:
+                fail(str(exc))
+            day, starts, ends, time_slot, window = (moment["date"], moment["starts_at"], moment["ends_at"], moment["time_slot"],
+                                                    moment["window"])
+            timed = rules["timeMode"] in ("time_range", "time_slot") and starts is not None
+            if persona["id"] == "booker" and (day < timezone.localdate() or (timed and starts < timezone.now())):
+                fail("지난 날짜·시간은 예약할 수 없습니다.")
+        booker = text_field(data, "booker", 200, required=persona["id"] == "booker")
+        phone = phone_digits(data.get("phone"))
+        if data.get("phone") and not phone:
+            fail("전화번호를 010-1234-5678처럼 입력해 주세요.")
+        if persona["id"] == "booker" and not phone:
+            fail("예약 확인과 1인 예약 수 확인을 위해 전화번호를 입력해 주세요.")
         purpose = text_field(data, "purpose", 2000)
         with transaction.atomic():
             if resource is not None:
                 Resource.objects.select_for_update().get(pk=resource.pk)
-            _capacity_check(upload, resource, slot, day, starts, ends, party, time_slot)
+            try:
+                ensure_per_person(upload, rules, owner, day, phone)
+            except RuleError as exc:
+                fail(str(exc))
+            if slot is not None:
+                _slot_check(Slot.objects.select_for_update().get(pk=slot.pk), party)
+            else:
+                try:
+                    ensure_capacity(upload, resource, rules, window, party)
+                except RuleError as exc:
+                    fail(str(exc))
             status = "requested" if booking_cfg["approvalRequired"] else "approved"
             if persona["id"] != "booker":
                 status = data.get("status", "approved") if data.get("status") in ("requested", "approved") else "approved"
-            booking = Booking.objects.create(upload=upload, resource=resource, slot=slot, booker=booker,
+            booking = Booking.objects.create(upload=upload, resource=resource, slot=slot, booker=booker, phone=phone,
                                              created_by_session=request.session.session_key, party_size=party, date=day,
                                              starts_at=starts, ends_at=ends, time_slot=time_slot, status=status,
                                              status_label="", purpose=purpose, requested_at=timezone.now())
             BookingEvent.objects.create(booking=booking, from_status="", to_status=status, persona=persona["id"])
-        return Response(booking_payload(booking, request.session.session_key, events=True), status=201)
+        return Response(booking_payload(booking, request.session.session_key, events=True, reveal=True), status=201)
 
 
 class BookingView(SessionView):
@@ -586,9 +665,10 @@ class BookingView(SessionView):
         persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments")
         booking = get_object_or_404(Booking.objects.select_related("resource"), pk=booking_id, upload=upload)
         session_key = request.session.session_key or ""
-        if persona["id"] == "booker" and booking.created_by_session != session_key:
+        lookup = lookup_of(request.query_params)
+        if persona["id"] == "booker" and not owns(booking, session_key, lookup):
             fail("내 예약만 볼 수 있습니다.")
-        return Response(booking_payload(booking, session_key, events=True))
+        return Response(booking_payload(booking, session_key, events=True, lookup=lookup, reveal=True))
 
     def patch(self, request, pk, booking_id):
         upload = service_upload(request, pk)
@@ -608,17 +688,18 @@ class BookingView(SessionView):
                 booking.save(update_fields=["payment", "processing_note", "updated_at"])
                 BookingEvent.objects.create(booking=booking, from_status=booking.status, to_status=booking.status,
                                             persona=persona["id"], note=PAYMENT_ACTIONS[action] + (f" · {note}" if note else ""))
-            return Response(booking_payload(booking, request.session.session_key or "", events=True))
+            return Response(booking_payload(booking, request.session.session_key or "", events=True, reveal=True))
         if action not in ACTIONS:
             fail("승인·거절·취소·이용 시작·완료 중 하나를 선택해 주세요.")
         note = text_field(data, "note", 2000, required=action == "reject")
         allowed_from, target = ACTIONS[action]
         session_key = request.session.session_key or ""
+        lookup = lookup_of(data) if persona["id"] == "booker" else None
         with transaction.atomic():
             booking = get_object_or_404(Booking.objects.select_for_update(of=("self",)).select_related("resource"),
                                         pk=booking_id, upload=upload)
             if persona["id"] == "booker":
-                if booking.created_by_session != session_key:
+                if not owns(booking, session_key, lookup):
                     fail("내 예약만 바꿀 수 있습니다.")
                 if action != "cancel":
                     fail("예약자는 취소만 할 수 있습니다.")
@@ -626,6 +707,8 @@ class BookingView(SessionView):
                 fail("이 역할에서는 예약을 처리할 수 없습니다.")
             if booking.status not in allowed_from:
                 fail("현재 상태에서는 할 수 없는 처리입니다.")
+            if action == "reopen":
+                _reopen_check(upload, booking)
             previous = booking.status
             booking.status = target
             booking.status_label = ""
@@ -633,55 +716,151 @@ class BookingView(SessionView):
                 booking.processing_note = note
             booking.save(update_fields=["status", "status_label", "processing_note", "updated_at"])
             BookingEvent.objects.create(booking=booking, from_status=previous, to_status=target, persona=persona["id"], note=note)
-        return Response(booking_payload(booking, session_key, events=True))
+        return Response(booking_payload(booking, session_key, events=True, lookup=lookup, reveal=True))
+
+
+BULK_LIMIT = 100
+
+
+class BookingBulkView(SessionView):
+    """One status step over many bookings; a booking the step does not fit is skipped, not an error."""
+    parser_classes = [JSONParser]
+
+    def post(self, request, pk):
+        upload = service_upload(request, pk)
+        persona = requested_persona(request, upload.service_config, "review_reservations")
+        if persona["id"] not in REVIEW_PERSONAS:
+            fail("이 역할에서는 예약을 처리할 수 없습니다.")
+        data = request.data if isinstance(request.data, dict) else {}
+        action = data.get("action")
+        if action not in ACTIONS:
+            fail("승인·거절·취소·이용 시작·완료 중 하나를 선택해 주세요.")
+        ids = data.get("ids")
+        if not isinstance(ids, list) or not ids or len(ids) > BULK_LIMIT:
+            fail(f"처리할 예약을 1~{BULK_LIMIT}건 골라 주세요.")
+        ids = {identifier(value) for value in ids}
+        note = text_field(data, "note", 2000, required=action == "reject")
+        allowed_from, target = ACTIONS[action]
+        done = skipped = 0
+        with transaction.atomic():
+            for booking in Booking.objects.select_for_update(of=("self",)).filter(upload=upload, pk__in=ids).order_by("date", "id"):
+                if booking.status not in allowed_from:
+                    skipped += 1
+                    continue
+                try:
+                    with transaction.atomic():
+                        if action == "reopen":
+                            _reopen_check(upload, booking)
+                        previous = booking.status
+                        booking.status = target
+                        booking.status_label = ""
+                        if note:
+                            booking.processing_note = note
+                        booking.save(update_fields=["status", "status_label", "processing_note", "updated_at"])
+                        BookingEvent.objects.create(booking=booking, from_status=previous, to_status=target,
+                                                    persona=persona["id"], note=note)
+                except ValidationError:
+                    skipped += 1
+                    continue
+                done += 1
+        return Response({"done": done, "skipped": len(ids) - done})
 
 
 class AvailabilityView(SessionView):
-    """Per-day bookings of one resource for a month, so the calendar can grey out full days."""
+    """What is still free on one resource: per day for a month, or per session or time block for one date."""
 
     def get(self, request, pk):
         upload = service_upload(request, pk)
         config = upload.service_config
         requested_persona(request, config, "make_reservation", "review_reservations", "browse_resources")
         resource = get_object_or_404(Resource, pk=identifier(request.query_params.get("resource")), upload=upload)
+        rules, _ = rules_for(config, resource)
+        basics = {"timeMode": rules["timeMode"], "capacityBy": rules["capacityBy"]}
+        if request.query_params.get("date"):
+            limit, state = one_day(upload, resource, rules, _date(request.query_params["date"], "날짜"))
+            return Response({**basics, "limit": limit, **state})
         month = request.query_params.get("month") or timezone.localdate().strftime("%Y-%m")
         try:
             first = date_type.fromisoformat(month + "-01")
         except ValueError:
             fail("월은 YYYY-MM 형식으로 입력해 주세요.")
         following = (first.replace(day=28) + timezone.timedelta(days=4)).replace(day=1)
-        capacity = resource.capacity or 1
-        counts = {}
-        active = Booking.objects.filter(upload=upload, resource=resource, status__in=ACTIVE)
-        for item in active.filter(date__gte=first, date__lt=following).values("date", "time_slot", "starts_at", "ends_at"):
-            if item["starts_at"] and item["ends_at"] and (timezone.localtime(item["ends_at"]).date() - timezone.localtime(item["starts_at"]).date()).days >= 1:
-                day = timezone.localtime(item["starts_at"]).date()
-                last = timezone.localtime(item["ends_at"]).date()
-                while day < last and day < following:
-                    if day >= first:
-                        counts.setdefault(day.isoformat(), {"count": 0, "slots": []})["count"] += 1
-                    day += timezone.timedelta(days=1)
-                continue
-            entry = counts.setdefault(item["date"].isoformat(), {"count": 0, "slots": []})
-            entry["count"] += 1
-            if item["time_slot"]:
-                entry["slots"].append(item["time_slot"])
-        days = {key: {**value, "full": value["count"] >= capacity and not (value["slots"] and len(set(value["slots"])) < max(1, len(config["booking"].get("slotOptions") or [])) and not any(s in WHOLE_DAY for s in value["slots"]))}
-                for key, value in counts.items()}
-        return Response({"month": month, "capacity": capacity, "days": days})
+        limit, days = month_states(upload, resource, rules, first, following)
+        return Response({**basics, "month": month, "limit": limit, "days": days})
+
+
+def _owner_payload(owner):
+    return {"id": str(owner["id"]), "name": owner["name"], "path": owner["path"]} if owner else None
+
+
+class BookingRulesView(SessionView):
+    """Booking rules of the service, or of one resource's branch (?resource= gives what that resource books under)."""
+    parser_classes = [JSONParser]
+
+    def payload(self, upload, resource=None):
+        config = upload.service_config
+        owners = rule_owners(upload)
+        rules, owner = rules_for(config, resource, owners)
+        return {"rules": rules, "source": _owner_payload(owner), "defaults": default_rules(config), "service": rules_of(config),
+                "sheetKind": config["sheetKind"],
+                "overrides": [_owner_payload(item) for item in sorted(owners.values(), key=lambda item: item["path"])]}
+
+    def get(self, request, pk):
+        upload = service_upload(request, pk)
+        resource = None
+        if request.query_params.get("resource"):
+            resource = get_object_or_404(Resource, pk=identifier(request.query_params["resource"]), upload=upload)
+        return Response(self.payload(upload, resource))
+
+    def patch(self, request, pk):
+        """rules for the service, or with resource_id for that branch; rules null with resource_id removes the branch's own."""
+        upload = service_upload(request, pk)
+        config = upload.service_config
+        requested_persona(request, config, "manage_schedule", "manage_resources")
+        data = request.data if isinstance(request.data, dict) else {}
+        resource = None
+        if data.get("resource_id"):
+            resource = get_object_or_404(Resource, pk=identifier(data["resource_id"]), upload=upload)
+        rules = None
+        if not (resource is not None and data.get("rules") is None):
+            try:
+                rules = validate_rules(data.get("rules"))
+            except RuleError as exc:
+                fail(str(exc))
+        with transaction.atomic():
+            if resource is not None:
+                Resource.objects.filter(pk=resource.pk).update(rules=rules)
+                resource.refresh_from_db()
+            else:
+                upload = type(upload).objects.select_for_update().get(pk=upload.pk)
+                upload.service_config["booking"]["rules"] = rules
+                upload.service_config["booking"]["unit"] = rules["timeMode"]
+                upload.save(update_fields=["service_config"])
+        return Response(self.payload(upload, resource))
+
+
+VOID = ("cancelled", "rejected", "lost")
+
+
+def payment_summary(bookings):
+    """What the payment desk owes attention: live bookings not yet paid, and the money still to collect."""
+    live = bookings.exclude(status__in=VOID)
+    unpaid = live.exclude(PAID)
+    return {"paid": live.filter(PAID).count(), "unpaid": unpaid.count(),
+            "unpaid_amount": float(unpaid.aggregate(total=Coalesce(Sum("amount"), Value(0, output_field=Booking._meta.get_field("amount"))))["total"])}
 
 
 class BookingStatsView(SessionView):
     def get(self, request, pk):
         upload = service_upload(request, pk)
         config = upload.service_config
-        persona = requested_persona(request, config, "dashboard", "review_reservations")
+        persona = requested_persona(request, config, "dashboard", "review_reservations", "manage_payments")
         bookings = Booking.objects.filter(upload=upload)
         if persona["id"] in ("staff", "org_manager") and request.query_params.get("scope"):
             bookings = scope_filter(config, persona, request.query_params["scope"].strip(), bookings)
         counts = dict(bookings.values_list("status").annotate(n=Count("id")).values_list("status", "n"))
         today = timezone.localdate()
-        top = (bookings.filter(resource__isnull=False).values("resource__path").annotate(n=Count("id")).order_by("-n")[:8])
+        top = (bookings.filter(resource__isnull=False).values("resource_id", "resource__name", "resource__path").annotate(n=Count("id")).order_by("-n")[:8])
         return Response({
             "total": sum(counts.values()),
             "counts": {status: counts.get(status, 0) for status in Booking.Kind.values},
@@ -690,7 +869,9 @@ class BookingStatsView(SessionView):
             "imported": bookings.filter(source_row__isnull=False).count(),
             "new": bookings.filter(source_row__isnull=True).count(),
             "resources": Resource.objects.filter(upload=upload, active=True).count(),
-            "top_resources": [{"path": item["resource__path"], "count": item["n"]} for item in top],
+            "top_resources": [{"id": str(item["resource_id"]), "name": item["resource__name"], "path": item["resource__path"], "count": item["n"]}
+                              for item in top],
+            "payments": payment_summary(bookings),
         })
 
 

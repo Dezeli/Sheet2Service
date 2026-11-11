@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
-from .models import Inquiry, ManagedRow
+from .models import Inquiry, ManagedRow, Resource
 from .service_access import has_feature, service_upload
 from .views import SessionView, owned
 
@@ -46,6 +46,11 @@ class InquiriesView(SessionView):
         items = Inquiry.objects.filter(upload=upload)
         if request.query_params.get("mine") == "1":
             items = items.filter(created_by_session=request.session.session_key or "")
+        status = request.query_params.get("status")
+        if status:
+            if status not in Inquiry.Status.values:
+                raise ValidationError({"detail": "처리 상태가 올바르지 않습니다."})
+            items = items.filter(status=status)
         try:
             page = int(request.query_params.get("page", "1"))
         except ValueError as exc:
@@ -60,7 +65,7 @@ class InquiriesView(SessionView):
         upload = inquiry_upload(request, pk)
         data = request.data
         if not isinstance(data, dict) or not {"title", "body"} <= set(data) \
-                or set(data) - {"title", "body", "row_id"}:
+                or set(data) - {"title", "body", "row_id", "resource_id"}:
             raise ValidationError({"detail": "문의 제목과 내용을 입력해 주세요."})
         title = text(data["title"], "제목", 120)
         body = text(data["body"], "내용", 5000)
@@ -76,6 +81,12 @@ class InquiriesView(SessionView):
                 raise ValidationError({"detail": "관련 항목이 올바르지 않습니다."}) from exc
             row = get_object_or_404(ManagedRow, pk=row_id, upload=upload)
             subject = str(row.values[number - 1] or f"항목 {row.row_number}")
+        elif data.get("resource_id") is not None:  # a reservation service names the subject by its resource
+            try:
+                resource_id = uuid.UUID(str(data["resource_id"]))
+            except ValueError as exc:
+                raise ValidationError({"detail": "관련 항목이 올바르지 않습니다."}) from exc
+            subject = get_object_or_404(Resource, pk=resource_id, upload=upload).path
         item = Inquiry.objects.create(upload=upload, title=title, body=body,
             subject_row=row, subject_snapshot=subject,
             created_by_session=request.session.session_key)
@@ -98,6 +109,11 @@ class InquiryView(SessionView):
             item.status = data["status"]
             item.save(update_fields=["answer", "status", "updated_at"])
         return Response(payload(item))
+
+    def delete(self, request, pk, inquiry_id):
+        upload = inquiry_upload(request, pk)
+        get_object_or_404(Inquiry, pk=inquiry_id, upload=upload).delete()
+        return Response(status=204)
 
 
 class InquiryStatsView(SessionView):

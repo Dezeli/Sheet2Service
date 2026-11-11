@@ -23,6 +23,7 @@ MAX_TABLE_COLUMNS = 14
 RANGE = re.compile(r"^\s*(.+?)\s*(?:~|–|—|\s-\s)\s*(.+?)\s*$")  # bare hyphens belong to dates
 TIME_TEXT = re.compile(r"^(오전|오후|AM|PM|am|pm)?\s*(\d{1,2})\s*(?::|시)\s*(\d{1,2})?\s*분?\s*(?::\d{2})?\s*(AM|PM|am|pm)?$")
 DATETIME_TEXT = re.compile(r"^(\d{4})[-./](\d{1,2})[-./](\d{1,2})[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?$")
+PHONE = re.compile(r"^0\d{8,10}$")
 TRUE_WORDS = {"y", "yes", "o", "true", "1", "예", "승인", "완료", "당첨", "사용", "확정", "있음", "유"}
 FALSE_WORDS = {"n", "no", "x", "false", "0", "아니오", "아니요", "미승인", "미당첨", "없음", "무", "대기"}
 BOOKING_STATUSES = tuple(Booking.Kind.values)
@@ -160,6 +161,8 @@ def derive_service(understanding, report):
             "endColumns": by_role.get("end", []),
             "slotColumn": _first(by_role, "time_slot"),
             "bookerColumn": _first(by_role, "booker"),
+            # on a records sheet a contact column is the booker's; on a catalog it is the facility's
+            "phoneColumn": _first(by_role, "contact") if kind == "booking_records" else 0,
             "partySizeColumns": by_role.get("party_size", []),
             "purposeColumn": _first(by_role, "purpose"),
             "amountColumn": _first(by_role, "amount"),
@@ -278,6 +281,14 @@ def parse_amount(text):
     except InvalidOperation:
         return None
     return value if abs(value) < Decimal("1e12") else None
+
+
+def phone_digits(text):
+    """'010-1234-5678', '+82 10-1234-5678' -> '01012345678'; '' when it is not a phone number."""
+    digits = re.sub(r"\D", "", _text(text))
+    if digits.startswith("82") and len(digits) in (11, 12):
+        digits = "0" + digits[2:]
+    return digits if PHONE.match(digits) else ""
 
 
 def truthy(text):
@@ -542,6 +553,7 @@ def apply_service(upload, config=None):
             bookings.append(Booking(
                 upload=upload, resource=leaf_for(values), source_row=row,
                 booker=_text(_value(values, booking_cfg["bookerColumn"]))[:200] if booking_cfg["bookerColumn"] else "",
+                phone=phone_digits(_value(values, booking_cfg.get("phoneColumn") or 0)) if booking_cfg.get("phoneColumn") else "",
                 party_size=party, date=day, starts_at=starts_at, ends_at=ends_at, time_slot=slot_text,
                 status=kind_, status_label=(status_text or ("" if not booking_cfg["statusColumn"] else ""))[:120],
                 purpose=_text(_value(values, booking_cfg["purposeColumn"]))[:2000] if booking_cfg["purposeColumn"] else "",

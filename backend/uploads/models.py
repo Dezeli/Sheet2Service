@@ -94,6 +94,7 @@ class Resource(models.Model):
     source_row = models.ForeignKey(ManagedRow, null=True, blank=True, on_delete=models.SET_NULL)
     capacity = models.PositiveIntegerField(null=True, blank=True)
     attributes = models.JSONField(default=dict, blank=True)  # label -> value from the sheet
+    rules = models.JSONField(null=True, blank=True)  # booking rules for this branch; None follows the parent or the service
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -140,6 +141,7 @@ class Booking(models.Model):
     slot = models.ForeignKey(Slot, null=True, blank=True, on_delete=models.SET_NULL, related_name="bookings")
     source_row = models.ForeignKey(ManagedRow, null=True, blank=True, on_delete=models.SET_NULL)
     booker = models.CharField(max_length=200, blank=True)
+    phone = models.CharField(max_length=20, blank=True, db_index=True)  # digits only; who the booker is without sign-in
     created_by_session = models.CharField(max_length=40, blank=True, db_index=True)
     party_size = models.PositiveIntegerField(null=True, blank=True)
     date = models.DateField(null=True, blank=True, db_index=True)
