@@ -59,8 +59,9 @@ function childLabel(child, parent) {
 /** Only what decides whether to open it: the next open session for dated sessions, otherwise how many choices are inside. */
 function SummaryLine({ item, usesSlots, levels }) {
   const summary = item.summary;
-  if (usesSlots && summary) {
-    if (!summary.next_slot) return <span className="browse-meta is-quiet">열린 회차 없음</span>;
+  if (item.closed) return <span className="browse-meta is-quiet">모집 종료</span>;
+  if (usesSlots && summary && (item.children_count === 0 || !summary.leaves)) {
+    if (!summary.next_slot) return <span className="browse-meta is-quiet">{summary.slots ? '모집 종료' : '열린 회차 없음'}</span>;
     const slot = summary.next_slot;
     return <span className="browse-meta">
       <span className="browse-meta__when"><Icon name="calendar" size={14} />{whenShort(slot, 'time_slot')}{summary.open_slots > 1 ? <em> 외 {summary.open_slots - 1}회</em> : null}</span>
@@ -94,7 +95,9 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, focu
   const sequence = useRef(0);
   const panelTicket = useRef(0);
   const canReserve = service.booking.acceptsNew && hasFeature(persona, 'make_reservation');
-  const usesSlots = service.sheetKind === 'schedule_slots';
+  const sheetSlots = service.sheetKind === 'schedule_slots';
+  // an item runs on sessions when the sheet is one of sessions, or when its own records settled into a fixed schedule
+  const slotted = (item) => Boolean(item) && (sheetSlots || item.summary?.slots > 0);
   const levels = service.resources.levels;
   const unit = service.booking.unit;
   const groups = facets?.groups || [];
@@ -110,7 +113,7 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, focu
       if (ticket !== sequence.current) return;
       setList(data);
       // the right side is never empty on a wide screen: the first entry opens unless one is already chosen
-      if (state.keepChoice !== true) choose((usesSlots && data.resources.find((item) => item.summary?.next_slot)) || data.resources[0] || null);
+      if (state.keepChoice !== true) choose((sheetSlots && data.resources.find((item) => item.summary?.next_slot)) || data.resources[0] || null);
     } catch (caught) { if (ticket === sequence.current) setError(caught.message); }
     finally { if (ticket === sequence.current) setLoading(false); }
   }
@@ -153,7 +156,7 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, focu
     setInside({ resources: [], page: 1, count: 0 }); setSlots(null);
     if (!shown) return;
     if (shown.children_count > 0) loadInside(1, shown, ticket);
-    else if (usesSlots) {
+    else if (slotted(shown)) {
       api(`/api/uploads/${uploadId}/slots/?resource=${shown.id}${canReserve ? '&available=1' : ''}`)
         .then((data) => { if (ticket === panelTicket.current) setSlots(data.slots); })
         .catch((caught) => setError(caught.message));
@@ -228,10 +231,10 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, focu
         const name = splitName(item.name);
         const parent = item.path.split(' / ').slice(-2, -1)[0];
         const series = name.series || (searching && parent !== item.name ? parent : '');
-        return <button type="button" key={item.id} className={`browse-item${chosen?.id === item.id ? ' is-chosen' : ''}`} aria-pressed={chosen?.id === item.id}
+        return <button type="button" key={item.id} className={`browse-item${chosen?.id === item.id ? ' is-chosen' : ''}${item.closed ? ' is-closed' : ''}`} aria-pressed={chosen?.id === item.id}
           title={item.path.split(' / ').join(' › ')} onClick={() => choose(item)}>
           <span className="browse-item__name">{series && <small>{series}</small>}<strong>{name.title}</strong></span>
-          <SummaryLine item={item} usesSlots={usesSlots} levels={levels} />
+          <SummaryLine item={item} usesSlots={slotted(item)} levels={levels} />
           <Icon name="next" size={18} />
         </button>;
       })}</div>
@@ -258,20 +261,24 @@ export default function ResourceBrowser({ uploadId, service, persona, csrf, focu
           <p className="browse-detail__label">{levels[shown.level + 1] || '하위 항목'} {inside.count.toLocaleString()}개</p>
           <ul className="browse-rows">{inside.resources.map((item) => {
             const branch = item.children_count > 0;
-            const drill = branch || usesSlots;
-            return <li key={item.id} className={drill ? 'is-drill' : undefined} onClick={drill ? () => setStack([...stack, item]) : undefined}>
-              <div className="browse-rows__text"><strong title={item.name}>{childLabel(item, shown)}</strong><SummaryLine item={item} usesSlots={usesSlots} levels={levels} /></div>
-              {drill ? <Icon name="next" size={18} /> : reserveButton(item)}
+            const sessions = slotted(item);
+            // one open session is booked right here; several are listed one level down; none means it is over
+            const drill = branch || (sessions && item.summary?.open_slots > 1);
+            const closed = sessions && !branch && !item.summary?.next_slot;
+            return <li key={item.id} className={`${drill ? 'is-drill' : ''}${closed ? ' is-full' : ''}`} onClick={drill ? () => setStack([...stack, item]) : undefined}>
+              <div className="browse-rows__text"><strong title={item.name}>{childLabel(item, shown)}</strong>{!closed && <SummaryLine item={item} usesSlots={sessions} levels={levels} />}</div>
+              {drill ? <Icon name="next" size={18} /> : closed ? <span className="service-badge tone-muted">모집 종료</span>
+                : reserveButton(item, sessions ? item.summary.next_slot : undefined)}
             </li>;
           })}</ul>
           <Pager page={inside.page} count={inside.count} onPage={(page) => loadInside(page)} />
         </>}
 
-        {shown.children_count === 0 && !usesSlots && canReserve && <div className="browse-detail__cta">{reserveButton(shown)}</div>}
-        {shown.children_count === 0 && usesSlots && <>
+        {shown.children_count === 0 && !slotted(shown) && canReserve && <div className="browse-detail__cta">{reserveButton(shown)}</div>}
+        {shown.children_count === 0 && slotted(shown) && <>
           <p className="browse-detail__label">회차</p>
           {slots === null && <p className="muted" role="status">불러오는 중…</p>}
-          {slots && !slots.length && <Empty>{canReserve ? '예약할 수 있는 회차가 없습니다.' : '등록된 회차가 없습니다.'}</Empty>}
+          {slots && !slots.length && <Empty>{canReserve ? '모집 중인 일정이 없습니다.' : '등록된 회차가 없습니다.'}</Empty>}
           {slots && slots.length > 0 && <ul className="browse-rows">{slots.map((slot) => {
             const full = slot.closed || slot.remaining === 0;
             return <li key={slot.id} className={full ? 'is-full' : undefined}>

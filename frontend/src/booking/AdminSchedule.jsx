@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SectionIcon from '../components/SectionIcon';
 import ServiceDialog from '../components/ServiceDialog';
-import { api, formatMoment, jsonOptions, query, statusActions, statusLabels, statusTone, whenText } from './api.js';
+import { actionsFor, api, formatMoment, jsonOptions, query, statusLabels, statusTone, whenText } from './api.js';
 import ResourceCalendar, { cellTime } from './ResourceCalendar';
 import { ItemLink, pathTitle, useNav } from './nav';
 import { Empty, Icon, IconButton, Pager, Segmented, SearchField } from '../components/ui';
@@ -13,6 +13,11 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const rangeText = (first, last) => `${Number(first.slice(5, 7))}월 ${Number(first.slice(8))}일 – ${first.slice(5, 7) === last.slice(5, 7) ? '' : `${Number(last.slice(5, 7))}월 `}${Number(last.slice(8))}일`;
 
 /** Resources down, days across for a week, or one resource's month as a calendar. */
+/** The Monday of the week a date falls in, and a short label for a date ("2025. 5. 19."). */
+const weekOf = (text) => { const d = new Date(`${text}T00:00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const dayLabel = (text) => { const d = new Date(`${text}T00:00:00`); return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`; };
+
 export default function AdminSchedule({ uploadId, service, persona, csrf, scope, focus = '' }) {
   const nav = useNav();
   const [view, setView] = useState(focus ? 'month' : 'week');
@@ -36,7 +41,7 @@ export default function AdminSchedule({ uploadId, service, persona, csrf, scope,
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const ticket = useRef(0);
-  const needsScope = ['staff', 'org_manager'].includes(persona.id);
+  const needsScope = false; // a part to narrow to is optional
   const unit = service.booking.unit;
 
   async function load(nextPage = page) {
@@ -94,18 +99,39 @@ export default function AdminSchedule({ uploadId, service, persona, csrf, scope,
           <th scope="row"><div className="schedule-resource"><ItemLink item={row.id} path={row.path} menu="schedule">{row.name}</ItemLink>
             {row.count > 0 && <span className="count-badge schedule-count">이번 주 {row.count}건</span>}</div></th>
           {days.map((day) => {
-            const items = row.days[day] || [];
+            // bookings sharing a time are one class or session: one card with how many, not a card each
+            const groups = [];
+            for (const item of row.days[day] || []) {
+              const time = cellTime(item);
+              const found = groups.find((group) => group.time === time);
+              if (found) found.items.push(item); else groups.push({ time, items: [item] });
+            }
             return <td key={day} className={`schedule-cell${day === today ? ' is-today' : ''}`}>
-              {items.slice(0, 4).map((item) => <button type="button" key={item.id} className={`schedule-item tone-${statusTone[item.status]}`} onClick={() => openDetail(item)} title={`${item.booker || '기록'} · ${statusLabels[item.status]}`}>
-                <span>{item.booker || (item.imported ? '기록' : '-')}</span><small>{cellTime(item)}</small>
-              </button>)}
-              {items.length > 4 && <small className="muted">+{items.length - 4}</small>}
+              {groups.slice(0, 4).map((group) => {
+                const first = group.items[0];
+                const pending = group.items.some((item) => item.status === 'requested');
+                return group.items.length === 1
+                  ? <button type="button" key={first.id} className={`schedule-item tone-${statusTone[first.status]}`} onClick={() => openDetail(first)} title={`${first.booker || '기록'} · ${statusLabels[first.status]}`}>
+                    <span>{first.booker || (first.imported ? '기록' : '-')}</span><small>{group.time}</small></button>
+                  : <button type="button" key={`${group.time}-${first.id}`} className={`schedule-item is-group tone-${pending ? 'pending' : statusTone[first.status]}`}
+                    onClick={() => nav.go('review', row.id)} title={`${group.items.length}건 · 예약 관리에서 보기`}>
+                    <span>{group.items.length}건{pending ? ' · 승인 대기 있음' : ''}</span><small>{group.time}</small></button>;
+              })}
+              {groups.length > 4 && <small className="muted">+{groups.length - 4}</small>}
             </td>;
           })}
         </tr>)}</tbody>
       </table>
     </div>
-    {data && !data.resources.length && <Empty>{applied ? '이번 주에 이 이름으로 예약된 항목이 없습니다.' : '이번 주 예약이 없습니다.'}</Empty>}
+    {data && !data.resources.length && <div className="schedule-empty">
+      <p>{applied ? '이 주에 이 이름으로 예약된 항목이 없습니다.' : '이 주에는 예약이 없습니다.'}</p>
+      {(data.nearby?.previous || data.nearby?.next) && <div className="schedule-empty__jumps">
+        {data.nearby.previous && <button type="button" data-intent="secondary" className="with-icon" onClick={() => setFrom(weekOf(data.nearby.previous))}>
+          <Icon name="prev" size={16} />지난 예약 · {dayLabel(data.nearby.previous)}</button>}
+        {data.nearby.next && <button type="button" data-intent="secondary" className="with-icon" onClick={() => setFrom(weekOf(data.nearby.next))}>
+          다음 예약 · {dayLabel(data.nearby.next)}<Icon name="next" size={16} /></button>}
+      </div>}
+    </div>}
     {message && <p className="notice" role="status">{message}</p>}
     {data && <Pager page={page} count={data.count} onPage={(next) => load(next)} />}
     </>}
@@ -122,9 +148,9 @@ export default function AdminSchedule({ uploadId, service, persona, csrf, scope,
         {detail.processing_note && <div><dt>처리 메모</dt><dd>{detail.processing_note}</dd></div>}
       </dl>
       {detail.imported && <p className="muted">시트에서 가져온 기록입니다.</p>}
-      {(statusActions[detail.status] || []).length > 0 && <fieldset className="form-grid detail-actions" disabled={busy}>
+      {actionsFor(persona, detail.status).length > 0 && <fieldset className="form-grid detail-actions" disabled={busy}>
         <label>메모 (거절할 때는 사유)<textarea rows={2} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-        <div className="dialog-actions">{(statusActions[detail.status] || []).map(([action, label, intent]) =>
+        <div className="dialog-actions">{actionsFor(persona, detail.status).map(([action, label, intent]) =>
           <button type="button" key={action} data-intent={intent} disabled={busy || !csrf || (action === 'reject' && !note.trim())}
             onClick={() => act(detail, action, note)}>{label}</button>)}</div>
       </fieldset>}

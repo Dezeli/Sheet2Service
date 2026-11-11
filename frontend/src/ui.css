@@ -705,3 +705,50 @@
 /* how many things wait for staff, beside the menu entry that handles them */
 .service-page .admin-sidebar nav > button .menu-badge { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center;
   background: var(--c-danger); color: white; font-size: .74rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+
+/* 항목 관리 shares the booking layout; admin tools sit where the booker's actions would */
+.service-page .browse-groups button.is-inactive span { color: var(--graphite-4); text-decoration: line-through; }
+.service-page .browse-groups .browse-groups__add { justify-content: flex-start; gap: 6px; margin-top: 6px; color: var(--signage); font-weight: 600; font-size: .86rem; border: 1px dashed color-mix(in srgb, var(--signage) 35%, var(--rule)); }
+.service-page .browse-groups .browse-groups__add:hover { background: var(--signage-soft); }
+.service-page .resource-admin__head-tools { display: inline-flex; align-items: center; gap: 10px; }
+.service-page .resource-admin__head-tools button[data-intent=primary] { min-height: 38px; padding: 6px 14px; }
+.service-page .resource-admin .browse-catalog__head { align-items: center; }
+.service-page .resource-admin .browse-detail__head { align-items: flex-start; }
+.service-page .resource-admin__title { flex: 1; min-width: 0; }
+.service-page .resource-admin__links { display: flex; gap: 16px; margin: 14px 0 0; font-size: .86rem; }
+.service-page .resource-admin__links a.item-link { color: var(--signage); font-weight: 600; }
+.service-page .resource-admin__children-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }
+.service-page .resource-admin__children-head .browse-detail__label { margin: 0; }
+.service-page .resource-admin__hint { margin: 8px 0 0; font-size: .84rem; }
+.service-page .browse-item.is-inactive .browse-item__name strong { color: var(--graphite-4); }
+.service-page .resource-admin .browse-meta .service-badge { margin-right: 4px; }
+.service-page .resource-admin .browse-rows li { padding: 10px 10px 10px 14px; }
+.service-page .resource-admin .ui-actions .ui-icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; }
+.service-page .resource-admin__groups { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.service-page .resource-admin__groups .chip.is-inactive { text-decoration: line-through; color: var(--graphite-4); }
+.service-page .resource-admin__groups .resource-admin__add-group { display: inline-flex; align-items: center; gap: 4px; border-style: dashed; color: var(--signage); }
+.service-page .schedule-empty { display: grid; justify-items: center; gap: 14px; padding: 36px 16px; border-radius: 12px; background: var(--shelf); color: var(--graphite-3); }
+.service-page .schedule-empty p { margin: 0; }
+.service-page .schedule-empty__jumps { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.service-page .schedule-empty__jumps button { min-height: 38px; }
+
+/* 예약 규칙: what the rules apply to on the left, the rules of the chosen one on the right */
+.service-page .rules-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0 28px; align-items: start; }
+.service-page .rules-targets { position: sticky; top: 16px; display: grid; gap: 4px; padding-right: 20px; border-right: 1px solid var(--rule); }
+.service-page .rules-targets__title { margin: 0 0 6px; font-size: .78rem; font-weight: 600; color: var(--graphite-3); }
+.service-page .rules-targets > button { display: grid; gap: 2px; padding: 10px 12px; border: 0; border-radius: 10px; background: transparent; text-align: left; color: var(--graphite-2); font-weight: 400; }
+.service-page .rules-targets > button strong { font-weight: 600; font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .rules-targets > button small { font-size: .76rem; color: var(--graphite-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .rules-targets > button:hover { background: var(--shelf); }
+.service-page .rules-targets > button[aria-current] { background: var(--signage-soft); color: var(--signage); }
+.service-page .rules-targets > button[aria-current] small { color: color-mix(in srgb, var(--signage) 70%, white); }
+.service-page .rules-targets__add { display: grid; gap: 6px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.service-page .rules-body { min-width: 0; }
+.service-page .rules-body > .notice { margin-top: 0; }
+.service-page .schedule-fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.service-page .schedule-fields input[type=date] { width: 148px; }
+.service-page .schedule-fields .ui-time-field input, .service-page .schedule-fields input[inputmode=numeric] { width: 76px; }
+/* enrolment over: still listed (people look for past courses), but quiet and at the end */
+.service-page .browse-item.is-closed .browse-item__name strong { color: var(--graphite-3); font-weight: 500; }
+.service-page .browse-item.is-closed .browse-item__name small { color: var(--graphite-4); }
+.service-page .browse-item.is-closed.is-chosen .browse-item__name strong { color: var(--signage); }

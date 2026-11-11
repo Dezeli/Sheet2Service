@@ -39,6 +39,14 @@ export const statusActions = {
   completed: [], lost: [['reopen', '다시 접수', 'warn']], other: [['reopen', '다시 접수', 'warn']],
 };
 
+// which duty a step belongs to (the server checks the same: personas.py STEP_FEATURES)
+const STEP_FEATURES = { approve: 'review_reservations', reject: 'review_reservations', cancel: 'review_reservations', reopen: 'review_reservations',
+  check_in: 'run_sessions', complete: 'run_sessions' };
+/** The steps this role may take on a booking in this status. */
+export function actionsFor(persona, status) {
+  return (statusActions[status] || []).filter(([action]) => persona?.features?.includes(STEP_FEATURES[action]));
+}
+
 export const statusTone = {
   requested: 'pending', approved: 'ok', rejected: 'bad', cancelled: 'muted', in_use: 'ok',
   completed: 'muted', waiting: 'pending', won: 'ok', lost: 'muted', other: 'muted',
@@ -87,6 +95,8 @@ export function whenShort(item, unit = 'day') {
   if (start && end) {
     const midnight = (d) => d.getHours() === 0 && d.getMinutes() === 0;
     if (start.toDateString() === end.toDateString()) return `${day(start)} ${shortClock(start)}–${shortClock(end)}`;
+    // a course over weeks at the same hours: the weeks, then the hours
+    if (item.time_slot && !(start.getHours() === 0 && start.getMinutes() === 0)) return `${day(start)} – ${shortDay(end, end.getFullYear() !== start.getFullYear())} · ${item.time_slot}`;
     if (midnight(start) && midnight(end)) {
       const days = Math.round((end - start) / 86400000);
       const last = new Date(end); if (unit !== 'stay') last.setDate(last.getDate() - 1);
@@ -107,6 +117,7 @@ export function whenText(item, unit = 'day') {
   if (item.starts_at && item.ends_at) {
     const startsAt = new Date(item.starts_at); const endsAt = new Date(item.ends_at);
     const sameDay = startsAt.toDateString() === endsAt.toDateString();
+    if (!sameDay && item.time_slot && /^\d{2}:\d{2}~\d{2}:\d{2}$/.test(item.time_slot)) return `${formatDate(startsAt)} ~ ${formatDate(endsAt)} · ${item.time_slot}`;
     const midnight = (d) => d.getHours() === 0 && d.getMinutes() === 0;
     if (!sameDay && midnight(startsAt) && midnight(endsAt)) {
       const days = Math.round((endsAt - startsAt) / 86400000);

@@ -64,17 +64,25 @@ export default function BookingRules({ uploadId, service, persona, csrf, onSaved
     finally { setBusy(false); }
   }
 
+  const overrides = info?.overrides || [];
+  const pickedOther = target && !overrides.some((item) => item.id === target.id);
   return <section className="panel booking-rules">
     {header}
-    <div className="rules-target">
-      <div className="chip-group">
-        <button type="button" className={`chip${!target ? ' is-selected' : ''}`} aria-pressed={!target} onClick={() => setTarget(null)}>서비스 전체</button>
-        {(info?.overrides || []).map((item) => <button type="button" key={item.id} className={`chip${target?.id === item.id ? ' is-selected' : ''}`}
-          aria-pressed={target?.id === item.id} onClick={() => setTarget(item)} title={item.path}>{item.name}</button>)}
+    <div className="rules-layout">
+    <nav className="rules-targets" aria-label="규칙 적용 대상">
+      <p className="rules-targets__title">적용 대상</p>
+      <button type="button" aria-current={!target ? 'true' : undefined} onClick={() => setTarget(null)}>
+        <strong>서비스 전체</strong><small>따로 정하지 않은 모든 항목</small></button>
+      {overrides.map((item) => <button type="button" key={item.id} aria-current={target?.id === item.id ? 'true' : undefined} onClick={() => setTarget(item)} title={item.path}>
+        <strong>{item.name}</strong><small>{item.path.split(' / ').slice(0, -1).join(' › ') || '항목별 규칙'}</small></button>)}
+      {pickedOther && <button type="button" aria-current="true"><strong>{target.name}</strong><small>새로 정하는 중</small></button>}
+      <div className="rules-targets__add">
+        <span className="field-label">항목별로 따로 정하기</span>
+        <ResourceCombobox uploadId={uploadId} value={null} onChange={(item) => item && setTarget(item)} label="규칙을 따로 둘 항목" placeholder="항목 찾기" />
       </div>
-      <ResourceCombobox uploadId={uploadId} value={target} onChange={setTarget} label="규칙을 따로 둘 항목" placeholder="항목별로 따로 정하기" />
-      {target && !ownsRules && <p className="muted">지금은 {info?.source ? `"${info.source.name}"` : '서비스 전체'} 규칙을 따릅니다. 저장하면 이 항목{target.children_count ? '과 하위 항목' : ''}에만 적용됩니다.</p>}
-    </div>
+    </nav>
+    <div className="rules-body">
+    {target && !ownsRules && <p className="notice">지금은 {info?.source ? `"${info.source.name}"` : '서비스 전체'} 규칙을 따릅니다. 저장하면 이 항목{target.children_count ? '과 하위 항목' : ''}에만 적용됩니다.</p>}
     {service.sheetKind === 'schedule_slots' && <p className="notice">회차별 정원은 회차·정원 메뉴에서 정합니다.</p>}
 
     <form onSubmit={(event) => { event.preventDefault(); send(form, '저장했습니다.'); }}>
@@ -166,5 +174,7 @@ export default function BookingRules({ uploadId, service, persona, csrf, onSaved
         </div>
       </div>
     </form>
+    </div>
+    </div>
   </section>;
 }

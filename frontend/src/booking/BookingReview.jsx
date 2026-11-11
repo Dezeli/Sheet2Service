@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SectionIcon from '../components/SectionIcon';
 import ServiceDialog from '../components/ServiceDialog';
-import { api, jsonOptions, query, statusActions, statusLabels, statusTone, whenShort, whenText } from './api.js';
+import { actionsFor, api, jsonOptions, query, statusLabels, statusTone, whenShort, whenText } from './api.js';
 import { Empty, IconButton, Pager, SearchField, Segmented } from '../components/ui';
 import { ItemLink, pathTitle, useNav } from './nav';
 
@@ -36,7 +36,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
   const payments = mode === 'payments';
   const unit = service.booking.unit || 'day';
   const [list, setList] = useState({ bookings: [], page: 1, count: 0, has_next: false });
-  const [filters, setFilters] = useState(() => ({ status: '', q: '', from: '', to: '', payment: '', ...(VIEWS[view]?.() || {}) }));
+  const [filters, setFilters] = useState(() => ({ status: '', q: '', from: '', to: '', payment: '', ...(VIEWS[mode === 'field' ? 'today' : view]?.() || {}) }));
   const [picked, setPicked] = useState(() => new Set());
   const [detail, setDetail] = useState(null);
   const [acting, setActing] = useState(null); // { item, action, label }
@@ -45,7 +45,8 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const ticket = useRef(0);
-  const needsScope = ['staff', 'org_manager'].includes(persona.id);
+  const needsScope = false; // a part to narrow to is optional; without one the whole list shows
+  const field = mode === 'field';
   const [summary, setSummary] = useState(null);
   const loadSummary = () => (payments && !(needsScope && !scope)
     ? api(`/api/uploads/${uploadId}/bookings/stats/${query({ persona: persona.id, scope })}`).then((data) => setSummary(data.payments)).catch(() => setSummary(null))
@@ -108,7 +109,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
   const filtered = Boolean(filters.status || filters.q || filters.from || filters.to || filters.payment);
   const empty = { status: '', q: '', from: '', to: '', payment: '' };
   return <section className="panel booking-review">
-    <div className="section-title"><h2 className="icon-heading"><SectionIcon name={payments ? 'payment' : 'request'} />{payments ? '결제 확인' : '예약 관리'}</h2>
+    <div className="section-title"><h2 className="icon-heading"><SectionIcon name={payments ? 'payment' : field ? 'reservation' : 'request'} />{payments ? '결제 확인' : field ? '오늘 이용' : '예약 관리'}</h2>
       <span className="section-count">{list.count.toLocaleString()}건</span></div>
     {needsScope && !scope && <p className="notice">담당 범위를 먼저 고르세요.</p>}
     {payments && summary && <div className="ledger-focus payment-summary">
@@ -121,7 +122,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
     <div className="ui-toolbar">
       {focus && <span className="focus-chip">{focusItem ? focusItem.name : '항목'}의 예약
         <IconButton icon="close" label="항목 조건 지우기" onClick={() => nav.go(payments ? 'payments' : 'review')} /></span>}
-      {!payments && <Segmented label="빠른 보기" value={viewOf(filters)} onChange={(next) => applyFilters(VIEWS[next]?.() || { status: '', from: '', to: '' })}
+      {!payments && !field && <Segmented label="빠른 보기" value={viewOf(filters)} onChange={(next) => applyFilters(VIEWS[next]?.() || { status: '', from: '', to: '' })}
         options={[{ value: '', label: '전체' }, { value: 'pending', label: '승인 대기' }, { value: 'today', label: '오늘' }]} />}
       <SearchField value={filters.q} placeholder="예약자·전화번호·항목" onSearch={(q) => applyFilters({ q })} />
       {payments && <Segmented label="결제 상태" value={filters.payment} onChange={(payment) => applyFilters({ payment })}
@@ -145,7 +146,7 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
         const [action, label] = BULK.find(([value]) => value === event.target.value);
         if (action === 'reject' || action === 'cancel') setActing({ item: 'picked', action, label: `${picked.size}건 ${label}` }); else run('picked', action, '');
       }}><option value="" disabled>선택한 예약 처리</option>
-        {BULK.filter(([action]) => list.bookings.some((item) => picked.has(item.id) && (statusActions[item.status] || []).some(([step]) => step === action)))
+        {BULK.filter(([action]) => list.bookings.some((item) => picked.has(item.id) && (actionsFor(persona, item.status) || []).some(([step]) => step === action)))
           .map(([action, label]) => <option key={action} value={action}>{label}</option>)}</select>
       <button type="button" className="text-button" onClick={() => setPicked(new Set())}>선택 해제</button>
     </div>}
@@ -164,19 +165,19 @@ export default function BookingReview({ uploadId, service, persona, csrf, scope,
           <td className="cell-when" title={whenText(item, unit)}>{(whenShort(item, unit) || '-').split(' – ').map((part, index) => <React.Fragment key={index}>{index ? ' – ' : ''}<span className="when-part">{part}</span></React.Fragment>)}</td>
           <td>{item.booker || (item.imported ? <span className="muted">시트 기록</span> : '-')}{item.party_size ? <span className="muted"> · {item.party_size}명</span> : null}{item.phone && <small className="cell-sub">{item.phone}</small>}</td>
           {payments ? <>
-            <td className="num">{item.amount !== null ? `${Number(item.amount).toLocaleString()}원` : '-'}</td>
+            <td className="num">{item.amount === null ? '-' : Number(item.amount) === 0 ? '무료' : `${Number(item.amount).toLocaleString()}원`}</td>
             <td><span className={`service-badge tone-${isPaid(item.payment) ? 'ok' : 'pending'}`}>{item.payment || '확인 전'}</span></td>
           </> : null}
           <td className="cell-actions"><div className="row-tools"><IconButton icon="detail" label="예약 상세" onClick={() => openDetail(item)} />{payments ? <div className="ui-actions">
             {isPaid(item.payment)
               ? <IconButton icon="close" tone="danger" label="결제 취소" disabled={busy || !csrf} onClick={() => setActing({ item, action: 'mark_unpaid', label: '결제 취소' })} />
               : <IconButton icon="check" tone="approve" label="결제 확인" disabled={busy || !csrf} onClick={() => run(item, 'mark_paid', '')} />}
-          </div> : statusActions[item.status]?.length
+          </div> : actionsFor(persona, item.status)?.length
             ? <select className="status-action" aria-label={`${item.resource?.name || '예약'} 처리`} value="" disabled={busy || !csrf} onChange={(event) => {
-              const [action, label] = statusActions[item.status].find(([value]) => value === event.target.value);
+              const [action, label] = actionsFor(persona, item.status).find(([value]) => value === event.target.value);
               if (action === 'reject' || action === 'cancel') setActing({ item, action, label }); else run(item, action, '');
             }}><option value="" disabled>처리</option>
-              {statusActions[item.status].map(([action, label]) => <option key={action} value={action}>{label}</option>)}</select>
+              {actionsFor(persona, item.status).map(([action, label]) => <option key={action} value={action}>{label}</option>)}</select>
             : <span className="status-action is-empty" aria-hidden="true" />}</div></td>
         </tr>)}</tbody>
       </table>

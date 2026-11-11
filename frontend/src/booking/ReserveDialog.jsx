@@ -111,7 +111,7 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
   const [ruled, setRuled] = useState(null); // the rules this resource books under: its own, its branch's or the service's
   const rules = ruled?.rules || rulesOf(service);
   const mode = rules.timeMode;
-  const usesSlots = service.sheetKind === 'schedule_slots';
+  const usesSlots = service.sheetKind === 'schedule_slots' || Boolean(presetSlot); // a fixed schedule arrives as its session
   const [slots, setSlots] = useState(null);
   const [slot, setSlot] = useState(presetSlot || null);
   const [start, setStart] = useState('');

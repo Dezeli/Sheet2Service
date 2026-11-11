@@ -20,13 +20,13 @@ import BookingRules from './BookingRules';
 import BookingStats from './BookingStats';
 import './booking.css';
 
-const REVIEWERS = ['admin', 'staff', 'org_manager', 'finance'];
-const roleOf = (persona) => REVIEWERS.includes(persona) ? 'admin' : 'user';
+// everyone but the public works in the staff layout (sidebar, tables)
+const roleOf = (persona) => (persona === 'booker' || persona === 'viewer' ? 'user' : 'admin');
 // the overview lives inside a role: reviewers open on it; a payment desk gets its own summary on 결제 확인 instead
 const hasHome = (persona) => hasFeature(persona, 'dashboard') && (hasFeature(persona, 'review_reservations') || !hasFeature(persona, 'manage_payments'));
 
 /** Menu entries a persona gets, in the order they appear. Data management expands into three screens. */
-function menuFor(persona, service) {
+function menuFor(persona, service, counts = {}) {
   const items = [];
   const add = (key, label, icon) => items.push({ key, label, icon });
   const reviewer = hasFeature(persona, 'review_reservations');
@@ -34,17 +34,20 @@ function menuFor(persona, service) {
   if (hasFeature(persona, 'browse_resources')) add('browse', hasFeature(persona, 'make_reservation') ? '예약하기' : '둘러보기', 'table');
   if (hasFeature(persona, 'my_reservations')) add('mine', '내 예약', 'reservation');
   if (hasFeature(persona, 'review_reservations')) { add('review', '예약 관리', 'request'); add('schedule', '일정표', 'schedule'); }
-  // 회차 exist only on sheets of dated sessions; elsewhere bookings never use them
-  if (hasFeature(persona, 'manage_schedule') && service.sheetKind === 'schedule_slots') add('slots', '회차·정원', 'schedule');
-  if (service.booking.acceptsNew && hasFeature(persona, 'manage_schedule', 'manage_resources')) add('rules', '예약 규칙', 'rules');
+  // the field's own screen; where there is no field role, check-in sits in 예약 관리 instead
+  if (hasFeature(persona, 'run_sessions') && !hasFeature(persona, 'review_reservations')) add('today', '오늘 이용', 'reservation');
+  // setting up reads top to bottom: what is booked, then how it is booked
   if (hasFeature(persona, 'manage_resources')) add('resources', '항목 관리', 'table');
+  // 회차 belong to sheets of dated sessions, and to items whose records settled into a fixed schedule
+  if (hasFeature(persona, 'manage_schedule') && (service.sheetKind === 'schedule_slots' || counts.slots > 0)) add('slots', '회차·정원', 'schedule');
+  if (service.booking.acceptsNew && hasFeature(persona, 'manage_schedule', 'manage_resources')) add('rules', '예약 규칙', 'rules');
   if (hasFeature(persona, 'inquiry')) add('inquiry', '문의', 'inquiry');
   if (hasFeature(persona, 'reply_inquiries')) add('inquiries', '문의 답변', 'inquiry');
   if (hasFeature(persona, 'notices')) add('notices', '공지', 'notice');
   if (hasFeature(persona, 'manage_payments')) add('payments', '결제 확인', 'payment');
   if (hasFeature(persona, 'manage_notices')) add('notices_admin', '공지 관리', 'notice');
   if (!reviewer && hasHome(persona)) add('dashboard', '현황', 'dashboard');
-  if (hasFeature(persona, 'manage_data', 'dashboard') && service.dashboard?.preview) add('stats', '데이터 통계', 'analysis');
+  if (hasFeature(persona, 'manage_data') && service.dashboard?.preview) add('stats', '데이터 통계', 'analysis');
   if (hasFeature(persona, 'manage_data')) { add('fields', '필드 구성', 'fields'); add('choices', '선택지 관리', 'choices'); add('data', '데이터 관리', 'data'); }
   return items;
 }
@@ -54,12 +57,13 @@ function ScopeBar({ uploadId, persona, scope, onChange }) {
   const [error, setError] = useState('');
   useEffect(() => {
     api(`/api/uploads/${uploadId}/bookings/scopes/${query({ persona: persona.id })}`)
-      .then((data) => { setScopes(data); if (!scope && data.values.length === 1) onChange(data.values[0]); })
+      .then((data) => setScopes(data))
       .catch((caught) => setError(caught.message));
   }, [uploadId, persona.id]);
   return <div className="scope-bar">
     <span className="field-label">{scopes?.label || '담당 범위'}</span>
-    <div className="scope-choice"><ChoiceCombobox label={scopes?.label || '담당 범위'} options={scopes?.values || []} value={scope} onChange={onChange} placeholder="고르세요" /></div>
+    <div className="scope-choice"><ChoiceCombobox label={scopes?.label || '담당 범위'} options={scopes?.values || []} value={scope} onChange={onChange} placeholder="전체" /></div>
+    {scope && <IconButton icon="close" label="전체 보기" onClick={() => onChange('')} />}
     {error && <span className="error">{error}</span>}
   </div>;
 }
@@ -97,7 +101,7 @@ function SummaryPage({ uploadId, data }) {
       <div className="section-title"><h2>역할과 기능</h2></div>
       <ul className="persona-list">{service.personas.map((item) => <li key={item.id}>
         <strong>{item.title}</strong>
-        <span className="muted">{menuFor(item, service).map((entry) => entry.label).join(' · ')}</span>
+        <span className="muted">{menuFor(item, service, data.counts).map((entry) => entry.label).join(' · ')}</span>
         {item.evidence && <small className="muted">{item.evidence}</small>}
       </li>)}</ul>
     </section>
@@ -154,7 +158,7 @@ export default function BookingService({ uploadId, page }) {
   // what is waiting for staff, as numbers beside the menu: re-read when the screen changes and every minute
   useEffect(() => {
     const me = service?.personas?.find((item) => item.id === page);
-    if (!me || roleOf(me.id) !== 'admin' || (['staff', 'org_manager'].includes(me.id) && !scope)) { setBadges({}); return undefined; }
+    if (!me || roleOf(me.id) !== 'admin') { setBadges({}); return undefined; }
     let active = true;
     const refresh = async () => {
       const next = {};
@@ -183,9 +187,9 @@ export default function BookingService({ uploadId, page }) {
     return <SummaryPage uploadId={uploadId} data={data} />;
   }
   const persona = personas.find((item) => item.id === page);
-  const items = service && persona ? menuFor(persona, service) : [];
+  const items = service && persona ? menuFor(persona, service, data.counts) : [];
   const active = items.some((item) => item.key === menu) ? menu : items[0]?.key;
-  const needsScope = persona && ['staff', 'org_manager'].includes(persona.id);
+  const hasScope = Boolean(persona?.scopeColumn); // the desk's work splits by a column: an optional narrowing
   const role = roleOf(persona?.id);
   const siteTitle = service?.title || service?.subject || '예약 서비스';
   const canRename = role === 'admin' && hasFeature(persona, 'review_reservations', 'manage_resources', 'manage_data');
@@ -227,7 +231,7 @@ export default function BookingService({ uploadId, page }) {
     {!error && !data && <p role="status">서비스 화면을 불러오는 중입니다.</p>}
     {data && !persona && <p className="error" role="alert">이 서비스에 없는 역할입니다. <a href={`/${uploadId}/${data.landing}`}>처음 화면으로</a></p>}
     {data && persona && <>
-      {needsScope && <ScopeBar uploadId={uploadId} persona={persona} scope={scope} onChange={setScope} />}
+      {hasScope && <ScopeBar uploadId={uploadId} persona={persona} scope={scope} onChange={setScope} />}
       <div className={role === 'admin' && items.length > 1 ? 'admin-shell' : undefined}>
         {role === 'admin' && items.length > 1 && <aside className="admin-sidebar">
           <nav aria-label="관리 메뉴">{items.map((item) => <button type="button" key={item.key} aria-current={item.key === active ? 'page' : undefined} onClick={() => go(item.key)}>
@@ -241,6 +245,7 @@ export default function BookingService({ uploadId, page }) {
           {active === 'mine' && <MyBookings uploadId={uploadId} service={service} persona={persona} csrf={csrf} refreshKey={refresh} />}
           {active === 'review' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} focus={focus} view={view} />}
           {active === 'schedule' && <AdminSchedule uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} focus={focus} />}
+          {active === 'today' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} focus={focus} mode="field" />}
           {active === 'payments' && <BookingReview uploadId={uploadId} service={service} persona={persona} csrf={csrf} scope={scope} focus={focus} mode="payments" />}
           {active === 'slots' && <SlotAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}
           {active === 'rules' && <BookingRules uploadId={uploadId} service={service} persona={persona} csrf={csrf}
