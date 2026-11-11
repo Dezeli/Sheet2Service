@@ -130,6 +130,8 @@ def service_payload(upload):
     if "booking" in config:
         config = {**config, "booking": {**config["booking"], "rules": rules_of(config)}}
     understanding = upload.understanding or {}
+    # the name the service shows its users at the top of every page; admins may rename it
+    config = {**config, "title": (config.get("title") or config.get("subject") or "예약 서비스").strip()}
     return {"upload": payload(upload), "service": config,
             "understanding": {"questions": understanding.get("questions", []),
                               "summary": summary_lines(understanding, upload.analysis) if understanding else []},
@@ -139,6 +141,24 @@ def service_payload(upload):
 
 
 class ServiceView(SessionView):
+    parser_classes = [JSONParser]
+
+    def patch(self, request, pk):
+        from .service_access import requested_persona  # service_access builds on this module
+        upload = owned(request, pk)
+        if not upload.service_config:
+            raise Http404
+        requested_persona(request, upload.service_config, "review_reservations", "manage_resources", "manage_data")
+        data = request.data if isinstance(request.data, dict) else {}
+        title = data.get("title")
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 40:
+            raise ValidationError({"detail": "서비스 이름은 1~40자로 입력해 주세요."})
+        with transaction.atomic():
+            locked = Upload.objects.select_for_update().get(pk=upload.pk)
+            locked.service_config = {**locked.service_config, "title": title.strip()}
+            locked.save(update_fields=["service_config"])
+        return Response(service_payload(locked))
+
     def get(self, request, pk):
         upload = owned(request, pk)
         if not upload.service_config:

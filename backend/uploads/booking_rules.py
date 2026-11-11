@@ -343,8 +343,10 @@ def normalize_request(rules, *, day, end_day, starts, ends, time_slot):
             "window": (window_start, window_end, label)}
 
 
-def ensure_capacity(upload, resource, rules, window, party):
-    """RuleError when one more booking of this size does not fit anywhere inside the window."""
+def ensure_capacity(upload, resource, rules, window, party, exclude=None):
+    """RuleError when one more booking of this size does not fit anywhere inside the window.
+
+    exclude leaves one booking out of the count, so a booking being changed is not weighed against itself."""
     if resource is None:
         return
     limit = limit_of(resource, rules)
@@ -352,7 +354,7 @@ def ensure_capacity(upload, resource, rules, window, party):
     if weight > limit:
         raise RuleError(f"한 번에 {limit}명까지 예약할 수 있습니다.")
     start, end, label = window
-    used = peak(start, end, label, load_items(upload, resource, start, end, rules))
+    used = peak(start, end, label, load_items(upload, resource, start, end, rules, exclude=exclude))
     if used + weight > limit:
         if rules["capacityBy"] == "people" and used < limit:
             raise RuleError(f"선택한 시간에는 {limit - used}명까지만 예약할 수 있습니다.")

@@ -40,7 +40,7 @@
 
 ## 예약자 식별
 
-로그인 대신 이름과 전화번호로 예약자를 구분한다. 예약자 역할의 예약에는 둘 다 필수이고, 전화번호는 `phone_digits`로 숫자만 남겨(`+82` → `0`) `Booking.phone`에 저장한다. 기록형 시트의 연락처(`contact`) 컬럼은 예약자 전화번호로 가져온다(`phoneColumn`). 내 예약은 이 브라우저 세션의 예약이거나, `name`·`phone`을 주면 그 둘이 맞는 예약이며 취소도 같은 값으로 한다. 관리 화면 목록은 번호를 가리고(`010-****-5678`) 상세에서만 전부 보여 준다. 문자 인증은 없어 다른 번호를 넣으면 우회할 수 있다.
+로그인 대신 이름과 전화번호로 예약자를 구분한다. 예약자 역할의 예약에는 둘 다 필수이고, 전화번호는 `phone_digits`로 숫자만 남겨(`+82` → `0`) `Booking.phone`에 저장한다. 기록형 시트의 연락처(`contact`) 컬럼은 예약자 전화번호로 가져온다(`phoneColumn`). 예약자는 예약할 때 숫자 4자리 예약 비밀번호를 정하고, 서버는 해시(`Booking.password`)만 저장한다. 내 예약 목록은 이 브라우저에서 한 예약, 또는 `name`·`phone`으로 찾은 예약(비밀번호가 있는 것만)이며 이름과 번호를 가려(`홍*동`, `010-5***-1231`) 요청 사항 없이 보여 준다. 상세·수정·취소는 `POST bookings/<id>/unlock/`에 비밀번호를 보내 그 예약을 연 뒤에만 된다(세션의 `verified_bookings`). 같은 예약에 5번 틀리면 10분 동안 열 수 없다. 예약자 수정(`action: edit`)은 인원과 요청 사항만 바꾸며, 인원이 늘면 자기 자신을 뺀 정원으로 다시 확인한다. 날짜 변경은 취소 후 재예약이다. 시트에서 가져온 기록은 비밀번호가 없어 관리자만 본다. 관리 화면 목록은 번호를 가리고(`010-****-5678`) 상세에서만 전부 보여 준다. 문자 인증은 없어 다른 번호를 넣으면 우회할 수 있다.
 
 ## API (`booking_views.py`)
 
@@ -53,7 +53,8 @@
 - `bookings/`: `booker`는 자기 예약만, `staff`·`org_manager`는 `scope`(담당자명·기관명·대상 상위 이름)로 제한, `admin`·`finance`는 전체. 필터 `status`·`resource`·`from`·`to`·`q`. POST는 `make_reservation`(예약 규칙에 맞는 시간만, 말단 항목만, 한도·겹침·휴무 검사, 승인형이면 `requested`), PATCH `action`은 `approve`·`reject`(사유 필수)·`cancel`·`check_in`·`complete`·`reopen`(자리가 남아 있을 때만)이며 예약자는 자기 예약의 취소만 가능. 모든 전이는 `BookingEvent`에 남는다.
 - `bookings/schedule/`: `from`부터 `days`(최대 31)일 동안 항목별 예약과 초과. `resource`를 주면 그 항목 하나(달력 보기).
 - `bookings/stats/`, `bookings/scopes/`.
-- 문의(`inquiries/`)와 공지(`notices/`)는 페르소나 기능(`inquiry`·`reply_inquiries`, `notices`·`manage_notices`)이 있을 때만 열린다. 문의의 관련 항목은 마지막 예약 대상 컬럼으로 이름 붙인다.
+- 문의(`inquiries/`)와 공지(`notices/`)는 페르소나 기능(`inquiry`·`reply_inquiries`, `notices`·`manage_notices`)이 있을 때만 열린다. booker와 admin이 있는 서비스에는 시트 내용과 상관없이 두 게시판을 항상 넣는다(`BOARD_FEATURES`, 이전 서비스는 마이그레이션 0020이 채움). 문의의 관련 항목은 마지막 예약 대상 컬럼으로 이름 붙인다.
+- 문의는 게시판이다. 작성자 이름은 필수, 전화번호는 선택(관리자만 봄)이고 공개/비공개를 고른다. 비공개는 숫자 4자리 비밀번호(해시 저장)가 필수이며 `?board=1` 목록에서 제목만 보이고 `POST inquiries/<id>/unlock/`으로 연다(세션 `opened_inquiries`, 5회 틀리면 10분 잠금). 공개 문의는 누구나 내용과 답변을 본다. 목록의 작성자 이름은 가린다.
 
 ## 화면 (`frontend/src/booking/`)
 

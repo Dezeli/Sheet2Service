@@ -76,7 +76,11 @@ class NoticeApiTests(ServiceClientMixin, APITestCase):
 
     def test_service_without_the_feature_keeps_but_hides_notices(self):
         self.create(is_published=True)
-        self.rebuild(model_answer())  # no notices feature on any persona
+        config = self.upload.service_config  # a config without the board, as only a hand-made one can be now
+        for persona in config["personas"]:
+            persona["features"] = [f for f in persona["features"] if f not in ("notices", "manage_notices")]
+        self.upload.service_config = config
+        self.upload.save(update_fields=["service_config"])
         self.assertEqual(self.client.get(self.base + "notices/").status_code, 400)
         self.assertEqual(Notice.objects.count(), 1)
         self.rebuild(notice_answer())

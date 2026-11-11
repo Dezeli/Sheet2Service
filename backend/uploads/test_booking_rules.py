@@ -73,7 +73,7 @@ class BookingRulesApiTests(ServiceClientMixin, APITestCase):
         return response.data["rules"]
 
     def book(self, **body):
-        return self.mutate("bookings/", {"persona": "booker", "resource_id": str(self.room.id), "booker": "예약자",
+        return self.mutate("bookings/", {"persona": "booker", "password": "1234", "resource_id": str(self.room.id), "booker": "예약자",
                                          "phone": "010-1234-5678", **body})
 
     def at(self, clock, day=None):
@@ -153,6 +153,7 @@ class BookingRulesApiTests(ServiceClientMixin, APITestCase):
     def test_reopening_a_cancelled_booking_needs_its_place_back(self):
         self.set_rules()
         first = self.book(date=self.day.isoformat())
+        self.mutate(f"bookings/{first.data['id']}/unlock/", {"password": "1234"})
         self.assertEqual(self.mutate(f"bookings/{first.data['id']}/", {"persona": "booker", "action": "cancel"}, "patch").status_code, 200)
         self.assertEqual(self.book(date=self.day.isoformat()).status_code, 201)
         reopened = self.mutate(f"bookings/{first.data['id']}/", {"persona": "admin", "action": "reopen"}, "patch")
@@ -176,7 +177,7 @@ class BranchRulesApiTests(ServiceClientMixin, APITestCase):
         self.day = monday()
 
     def book(self, **body):
-        return self.mutate("bookings/", {"persona": "booker", "resource_id": str(self.room.id), "booker": "홍길동",
+        return self.mutate("bookings/", {"persona": "booker", "password": "1234", "resource_id": str(self.room.id), "booker": "홍길동",
                                          "phone": "010-1234-5678", **body})
 
     def test_a_branch_carries_its_own_sessions_and_one_slot_per_person(self):
@@ -216,6 +217,7 @@ class BranchRulesApiTests(ServiceClientMixin, APITestCase):
         second = self.book(date=(self.day + timedelta(days=1)).isoformat())
         self.assertEqual(second.status_code, 201)
         self.assertIn("2건까지", self.book(date=(self.day + timedelta(days=2)).isoformat()).data["detail"])
+        self.mutate(f"bookings/{second.data['id']}/unlock/", {"password": "1234"})
         self.mutate(f"bookings/{second.data['id']}/", {"persona": "booker", "action": "cancel"}, "patch")
         self.assertEqual(self.book(date=(self.day + timedelta(days=2)).isoformat()).status_code, 201)
         self.assertEqual(self.mutate("booking-rules/", {"persona": "admin", "resource_id": str(self.room.id),
@@ -237,7 +239,7 @@ class PhoneIdentityTests(ServiceClientMixin, APITestCase):
         self.day = monday().isoformat()
 
     def book(self, **body):
-        return self.mutate("bookings/", {"persona": "booker", "resource_id": str(self.room.id), "booker": "홍길동", "date": self.day, **body})
+        return self.mutate("bookings/", {"persona": "booker", "password": "1234", "resource_id": str(self.room.id), "booker": "홍길동", "date": self.day, **body})
 
     def test_phone_numbers_are_read_loosely_and_stored_as_digits(self):
         self.assertEqual(phone_digits("010-1234-5678"), "01012345678")
@@ -260,15 +262,61 @@ class PhoneIdentityTests(ServiceClientMixin, APITestCase):
         detail = self.client.get(self.base + f"bookings/{created.data['id']}/?persona=admin").data
         self.assertEqual(detail["phone"], "010-1234-5678")
 
-    def test_a_booker_finds_and_cancels_by_name_and_phone(self):
-        created = self.book(phone="01012345678")
+    def test_a_booking_needs_a_four_digit_pin_and_stores_only_its_hash(self):
+        self.assertIn("비밀번호", self.book(phone="01012345678", password="").data["detail"])
+        self.assertIn("4자리", self.book(phone="01012345678", password="12a4").data["detail"])
+        created = self.book(phone="01012345678", password="4321")
+        stored = Booking.objects.get(pk=created.data["id"]).password
+        self.assertTrue(stored and "4321" not in stored)
+        self.assertNotIn("password", created.data)
+
+    def test_my_bookings_are_masked_until_the_pin_opens_one(self):
+        created = self.book(phone="01052341231", booker="홍길동", password="4321")
+        self.assertTrue(created.data["mine"])  # the reply to the booking itself
+        listed = self.client.get(self.base + "bookings/?persona=booker").data["bookings"][0]
+        self.assertEqual((listed["booker"], listed["phone"], listed["locked"], listed["mine"]), ("홍*동", "010-5***-1231", True, False))
+        path = f"bookings/{created.data['id']}/"
+        self.assertEqual(self.client.get(self.base + path + "?persona=booker").status_code, 400)
+        self.assertEqual(self.mutate(path, {"persona": "booker", "action": "cancel"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(path + "unlock/", {"password": "0000"}).status_code, 400)
+        opened = self.mutate(path + "unlock/", {"password": "4321"})
+        self.assertEqual((opened.status_code, opened.data["booker"], opened.data["phone"]), (200, "홍길동", "010-5234-1231"))
+        self.assertEqual(self.client.get(self.base + path + "?persona=booker").status_code, 200)
+        listed = self.client.get(self.base + "bookings/?persona=booker").data["bookings"][0]
+        self.assertEqual((listed["booker"], listed["mine"]), ("홍길동", True))
+        self.assertEqual(self.mutate(path, {"persona": "booker", "action": "cancel"}, "patch").data["status"], "cancelled")
+
+    def test_another_device_finds_by_name_and_phone_then_opens_with_the_pin(self):
+        created = self.book(phone="01012345678", password="4321")
         Booking.objects.filter(pk=created.data["id"]).update(created_by_session="another-device")
         self.assertEqual(self.client.get(self.base + "bookings/?persona=booker").data["count"], 0)
         found = self.client.get(self.base + "bookings/?persona=booker&name=홍길동&phone=010-1234-5678").data
-        self.assertEqual((found["count"], found["bookings"][0]["mine"]), (1, True))
-        self.assertEqual(self.client.get(self.base + "bookings/?persona=booker&name=김철수&phone=010-1234-5678").data["count"], 0)
-        self.assertEqual(self.client.get(self.base + "bookings/?persona=booker&phone=010-1234-5678").status_code, 400)
+        self.assertEqual((found["count"], found["bookings"][0]["booker"], found["bookings"][0]["purpose"]), (1, "홍*동", ""))
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=booker&phone=010-1234-5678").data["count"], 1)
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=booker&name=홍길동").data["count"], 1)
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=booker&name=김철수").data["count"], 0)
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=booker&phone=12").status_code, 400)
+        self.assertEqual(self.mutate(f"bookings/{created.data['id']}/unlock/", {"password": "4321"}).status_code, 200)
+
+    def test_five_wrong_pins_lock_that_booking(self):
+        from django.core.cache import cache
+        cache.clear()
+        created = self.book(phone="01012345678", password="4321")
+        path = f"bookings/{created.data['id']}/unlock/"
+        for _ in range(5):
+            self.assertEqual(self.mutate(path, {"password": "0000"}).status_code, 400)
+        self.assertIn("10분", self.mutate(path, {"password": "4321"}).data["detail"])
+        cache.clear()
+
+    def test_a_booker_changes_party_and_request_within_capacity(self):
+        self.mutate("booking-rules/", {"persona": "admin", "rules": rules(limit=4, capacityBy="people")}, "patch")
+        created = self.book(phone="01012345678", password="4321", party_size=2)
         path = f"bookings/{created.data['id']}/"
-        self.assertEqual(self.mutate(path, {"persona": "booker", "action": "cancel"}, "patch").status_code, 400)
-        cancelled = self.mutate(path, {"persona": "booker", "action": "cancel", "name": "홍길동", "phone": "01012345678"}, "patch")
-        self.assertEqual(cancelled.data["status"], "cancelled")
+        self.assertEqual(self.mutate(path, {"persona": "booker", "action": "edit", "party_size": 3}, "patch").status_code, 400)  # PIN first
+        self.mutate(path + "unlock/", {"password": "4321"})
+        self.assertIn("4명", self.mutate(path, {"persona": "booker", "action": "edit", "party_size": 5}, "patch").data["detail"])
+        edited = self.mutate(path, {"persona": "booker", "action": "edit", "party_size": 4, "purpose": "휠체어 1대"}, "patch")
+        self.assertEqual((edited.status_code, edited.data["party_size"], edited.data["purpose"]), (200, 4, "휠체어 1대"))
+        self.assertIn("인원 2→4명", edited.data["events"][-1]["note"])
+        self.assertEqual(self.mutate(path, {"persona": "booker", "action": "edit", "date": self.day}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(path, {"persona": "admin", "action": "edit", "party_size": 1}, "patch").status_code, 400)

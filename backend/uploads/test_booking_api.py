@@ -38,23 +38,23 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
     def test_booker_reserves_a_room_for_a_date_then_admin_reviews(self):
         room = Resource.objects.get(upload=self.upload, path="변산 자연휴양림 / 우럭")
         org = room.parent
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(org.id), "date": future(3),
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(org.id), "date": future(3),
                                                    "booker": "홍길동"}).status_code, 400)  # must pick the leaf
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id),
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(room.id),
                                                    "booker": "홍길동"}).status_code, 400)  # date model needs a date
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3)}).status_code, 400)
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3)}).status_code, 400)
         self.assertEqual(self.config["booking"]["unit"], "stay")  # 숙박일자 + 객실
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3),
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3),
                                                    "end_date": future(3), "booker": "홍길동"}).status_code, 400)  # a stay needs a night
-        created = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3), "end_date": future(5),
+        created = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(3), "end_date": future(5),
                                             "booker": "홍길동", "party_size": 3, "purpose": "가족 여행"})
         self.assertEqual(created.status_code, 201, created.data)
         self.assertEqual(created.data["status"], "requested")  # approval mode
         self.assertTrue(created.data["mine"])
         self.assertEqual(created.data["events"][0]["to"], "requested")
         # the same room on the same day is taken (capacity defaults to one)
-        second = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(4), "end_date": future(6), "booker": "김철수"})
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(5), "end_date": future(7),
+        second = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(4), "end_date": future(6), "booker": "김철수"})
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(room.id), "date": future(5), "end_date": future(7),
                                                    "booker": "박영희"}).status_code, 201)  # checkout day is free again
         self.assertEqual(second.status_code, 400)
         self.assertIn("가득", second.data["detail"])
@@ -69,11 +69,22 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(approved.data["status"], "approved")
         self.assertEqual([event["to"] for event in approved.data["events"]], ["requested", "approved"])
         self.assertEqual(self.mutate(f"bookings/{booking_id}/", {"persona": "admin", "action": "approve"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(f"bookings/{booking_id}/", {"persona": "booker", "action": "cancel"}, "patch").status_code, 400)  # PIN first
+        self.assertEqual(self.mutate(f"bookings/{booking_id}/unlock/", {"password": "1234"}).status_code, 200)
         cancelled = self.mutate(f"bookings/{booking_id}/", {"persona": "booker", "action": "cancel"}, "patch")
         self.assertEqual(cancelled.data["status"], "cancelled")
         other = APIClient(enforce_csrf_checks=True)
         self.assertEqual(other.get(self.base + "bookings/?persona=booker").status_code, 404)
         self.assertEqual(self.client.post(self.base + "bookings/", {"persona": "booker"}, format="json").status_code, 403)
+
+    def test_the_service_title_defaults_to_its_subject_and_admins_rename_it(self):
+        url = self.base + "service/"
+        self.assertEqual(self.client.get(url).data["service"]["title"], self.config["subject"])
+        self.assertEqual(self.mutate("service/", {"persona": "booker", "title": "새 이름"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate("service/", {"persona": "admin", "title": " "}, "patch").status_code, 400)
+        renamed = self.mutate("service/", {"persona": "admin", "title": "  상주 통합예약  "}, "patch")
+        self.assertEqual(renamed.data["service"]["title"], "상주 통합예약")
+        self.assertEqual(self.client.get(url).data["service"]["title"], "상주 통합예약")
 
     def test_bulk_action_applies_where_it_fits_and_skips_the_rest(self):
         waiting = [item["id"] for item in self.client.get(self.base + "bookings/?persona=admin&status=requested").data["bookings"]]
@@ -148,14 +159,14 @@ class CatalogApiTests(ServiceClientMixin, APITestCase):
         igloo = Resource.objects.get(upload=self.upload, name="이글루A")
         self.assertEqual(igloo.capacity, 5)
         for index in range(5):
-            response = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": f"손님{index}"})
+            response = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": f"손님{index}"})
             self.assertEqual(response.status_code, 201, response.data)
             self.assertEqual(response.data["status"], "approved")
         self.assertEqual(self.config["booking"]["unit"], "stay")  # 캠핑장
-        full = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": "손님6"})
+        full = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(7), "end_date": future(8), "booker": "손님6"})
         self.assertEqual(full.status_code, 400)
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(8), "end_date": future(9), "booker": "손님7"}).status_code, 201)
-        past = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": "2020-01-01", "end_date": "2020-01-02", "booker": "옛날"})
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(8), "end_date": future(9), "booker": "손님7"}).status_code, 201)
+        past = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": "2020-01-01", "end_date": "2020-01-02", "booker": "옛날"})
         self.assertEqual(past.status_code, 400)
         self.assertEqual(self.client.get(self.base + "bookings/stats/?persona=admin").data["new"], 6)
 
@@ -172,10 +183,10 @@ class SlotsApiTests(ServiceClientMixin, APITestCase):
         slot = Slot.objects.get(upload=self.upload, imported_count=17)
         updated = self.mutate(f"slots/{slot.id}/", {"persona": "admin", "capacity": 18}, "patch")
         self.assertEqual(updated.data["remaining"], 1)
-        booked = self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "참가자"})
+        booked = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "참가자"})
         self.assertEqual(booked.status_code, 201, booked.data)
         self.assertEqual((booked.data["time_slot"], booked.data["date"]), ("오전10시~12시", "2026-04-16"))
-        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "늦은 참가자"}).status_code, 400)
+        self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "늦은 참가자"}).status_code, 400)
         listed = self.client.get(self.base + f"slots/?resource={slot.resource_id}").data["slots"]
         self.assertEqual(next(item for item in listed if item["id"] == str(slot.id))["remaining"], 0)
         closed = self.mutate(f"slots/{slot.id}/", {"persona": "admin", "closed": True}, "patch")
@@ -186,6 +197,23 @@ class SlotsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(new_slot.status_code, 201)
         self.assertEqual(self.mutate(f"slots/{new_slot.data['id']}/", {"persona": "admin"}, "delete").data, {"deleted": True})
         self.assertEqual(self.mutate("slots/", {"persona": "booker", "resource_id": str(slot.resource_id), "date": future(10)}).status_code, 400)
+
+
+    def test_card_summary_names_the_next_open_session(self):
+        resource = Slot.objects.filter(upload=self.upload).first().resource
+        top = resource
+        while top.parent_id:
+            top = top.parent
+        made = self.mutate("slots/", {"persona": "admin", "resource_id": str(resource.id), "date": future(5), "time_slot": "오후2시~4시", "capacity": 20})
+        self.assertEqual(made.status_code, 201, made.data)
+        listed = self.client.get(self.base + "resources/?summary=1").data["resources"]
+        card = next(item for item in listed if item["id"] == str(top.id))["summary"]
+        self.assertEqual(card["next_slot"]["id"], made.data["id"])
+        self.assertEqual((card["open_slots"], card["next_slot"]["remaining"]), (1, 20))
+        self.assertEqual(set(card), {"leaves", "booked", "recent", "upcoming", "next_slot", "open_slots"})
+        self.assertNotIn("summary", self.client.get(self.base + "resources/").data["resources"][0])
+        self.assertEqual(self.client.get(self.base + "resources/?size=10").data["size"], 10)
+        self.assertEqual(self.client.get(self.base + "resources/?size=7").data["size"], 20)
 
 
 class PaymentApiTests(ServiceClientMixin, APITestCase):

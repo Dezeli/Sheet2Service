@@ -4,8 +4,10 @@ import uuid
 from collections import Counter
 from datetime import date as date_type
 
+from django.contrib.auth.hashers import check_password, make_password
+from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Q, Sum, Value
+from django.db.models import Case, Count, F, IntegerField, Max as models_max, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -48,15 +50,28 @@ def identifier(value):
         fail("선택한 항목이 올바르지 않습니다.")
 
 
+PAGE_SIZES = (10, 20)
+
+
+def page_size(request):
+    """20 a page unless the screen asks for one of the other sizes it is allowed."""
+    try:
+        size = int(request.query_params.get("size", PAGE))
+    except ValueError:
+        size = PAGE
+    return size if size in PAGE_SIZES else PAGE
+
+
 def paginated(query, request):
     try:
         page = int(request.query_params.get("page", "1"))
     except ValueError:
         fail("페이지 번호가 올바르지 않습니다.")
+    size = page_size(request)
     count = query.count()
-    if page < 1 or page > max(1, (count + PAGE - 1) // PAGE):
+    if page < 1 or page > max(1, (count + size - 1) // size):
         fail("페이지 번호가 범위를 벗어났습니다.")
-    return query[(page - 1) * PAGE:page * PAGE], {"page": page, "count": count, "has_next": page * PAGE < count}
+    return query[(page - 1) * size:page * size], {"page": page, "count": count, "size": size, "has_next": page * size < count}
 
 
 def text_field(data, key, maximum, *, required=False):
@@ -111,27 +126,47 @@ def mask_phone(digits):
     return f"{digits[:head]}-{'*' * len(digits[head:-4])}-{digits[-4:]}"
 
 
-def lookup_of(source):
-    """(name, phone) a booker names themself by instead of the browser session; None when neither is given."""
-    name = str(source.get("name") or "").strip()
-    raw = source.get("phone") or ""
-    if not name and not raw:
-        return None
-    phone = phone_digits(raw)
-    if not name or not phone:
-        fail("예약할 때 입력한 이름과 전화번호를 함께 입력해 주세요.")
-    return name[:200], phone
+def mask_name(name):
+    """홍길동 → 홍*동, 홍길 → 홍*: enough to recognise one's own booking in a list, not to read someone else's."""
+    name = (name or "").strip()
+    if len(name) <= 1:
+        return name
+    if len(name) == 2:
+        return name[0] + "*"
+    return name[0] + "*" * (len(name) - 2) + name[-1]
 
 
-def owns(booking, session_key, lookup):
-    if session_key and booking.created_by_session == session_key:
+def hint_phone(digits):
+    """010-5***-1231: the first digit of the middle group stays, so a booker can tell their numbers apart."""
+    if not digits:
+        return ""
+    head = 2 if digits.startswith("02") else 3
+    middle = digits[head:-4]
+    return f"{digits[:head]}-{middle[:1]}{'*' * (len(middle) - 1)}-{digits[-4:]}"
+
+
+PIN = re.compile(r"\d{4}")
+LOOKUP_TRIES = 5
+LOOKUP_LOCK_SECONDS = 600
+VERIFIED = "verified_bookings"  # session key: bookings this browser proved it owns by name, phone and PIN
+
+
+def verified_of(request):
+    """Bookings this browser has opened with their name, phone number and PIN, besides the ones it made."""
+    return set(request.session.get(VERIFIED, []))
+
+
+def owns(booking, session_key, verified=None):
+    """Opened with its PIN in this browser; a booking made here before PINs existed opens by the browser alone."""
+    if str(booking.id) in (verified or ()):
         return True
-    return bool(lookup) and booking.phone == lookup[1] and booking.booker.strip().lower() == lookup[0].lower()
+    return bool(session_key) and booking.created_by_session == session_key and not booking.password
 
 
-def booking_payload(item, session_key="", events=False, lookup=None, reveal=False):
-    """reveal shows the whole phone number: to the booker for their own, to reviewers in the detail only."""
-    mine = owns(item, session_key, lookup)
+def booking_payload(item, session_key="", events=False, verified=None, reveal=False, masked=False):
+    """reveal shows the whole phone number: to the booker for their own, to reviewers in the detail only.
+    masked is a booker's list before the PIN: name and number half hidden, notes left out."""
+    mine = owns(item, session_key, verified)
     payload = {"id": str(item.id),
                "resource": {"id": str(item.resource_id), "name": item.resource.name, "path": item.resource.path} if item.resource_id else None,
                "slot": str(item.slot_id) if item.slot_id else None,
@@ -148,6 +183,10 @@ def booking_payload(item, session_key="", events=False, lookup=None, reveal=Fals
                "created_at": item.created_at.isoformat(), "updated_at": item.updated_at.isoformat(),
                "imported": item.source_row_id is not None,
                "mine": mine}
+    if masked and not mine:
+        payload.update(booker=mask_name(item.booker), phone=hint_phone(item.phone), purpose="", processing_note="", attributes={},
+                       amount=None, payment="", locked=True)
+        return payload
     if events:
         payload["events"] = [{"from": event.from_status, "to": event.to_status, "persona": event.persona,
                               "note": event.note, "at": event.created_at.isoformat()} for event in item.events.all()]
@@ -238,6 +277,31 @@ def _matches_numbers(resource, limits):
     return True
 
 
+def resource_summary(upload, resource, with_slots):
+    """What a booker wants on a card before opening it: how much sits under it, how busy it is, and the next open session."""
+    under = Q(resource=resource) | Q(resource__path__startswith=resource.path + " / ")
+    bookings = Booking.objects.filter(upload=upload).filter(under).exclude(status__in=("cancelled", "rejected", "lost"))
+    today = timezone.localdate()
+    leaves = Resource.objects.filter(upload=upload, active=True, path__startswith=resource.path + " / ") \
+        .annotate(n=Count("children")).filter(n=0).count()
+    summary = {"leaves": leaves, "booked": bookings.count(),
+               "recent": (bookings.aggregate(last=models_max("date"))["last"] or None),
+               "upcoming": bookings.filter(status__in=ACTIVE, date__gte=today).count(), "next_slot": None, "open_slots": 0}
+    if summary["recent"]:
+        summary["recent"] = summary["recent"].isoformat()
+    if with_slots:
+        slots = Slot.objects.filter(upload=upload, closed=False, date__gte=today) \
+            .filter(Q(resource=resource) | Q(resource__path__startswith=resource.path + " / ")) \
+            .select_related("resource").annotate(booked=SLOT_PEOPLE).order_by("date", "starts_at")
+        summary["open_slots"] = slots.count()
+        for slot in slots[:30]:
+            item = slot_payload(slot, slot.booked or 0)
+            if item["remaining"] is None or item["remaining"] > 0:
+                summary["next_slot"] = item
+                break
+    return summary
+
+
 class ResourceFacetsView(SessionView):
     def get(self, request, pk):
         upload = service_upload(request, pk)
@@ -296,14 +360,19 @@ class ResourcesView(SessionView):
                 page = int(params.get("page", "1"))
             except ValueError:
                 fail("페이지 번호가 올바르지 않습니다.")
-            if page < 1 or page > max(1, (len(matched) + PAGE - 1) // PAGE):
+            size = page_size(request)
+            if page < 1 or page > max(1, (len(matched) + size - 1) // size):
                 fail("페이지 번호가 범위를 벗어났습니다.")
-            items = matched[(page - 1) * PAGE:page * PAGE]
-            paging = {"page": page, "count": len(matched), "has_next": page * PAGE < len(matched)}
+            items = matched[(page - 1) * size:page * size]
+            paging = {"page": page, "count": len(matched), "size": size, "has_next": page * size < len(matched)}
         else:
             items, paging = paginated(resources, request)
-        return Response({**paging, "levels": upload.service_config["resources"]["levels"], "filtering": filtering,
-                         "resources": [resource_payload(item, item.children_total, item.active_bookings) for item in items]})
+        rows = [resource_payload(item, item.children_total, item.active_bookings) for item in items]
+        if params.get("summary") == "1":
+            with_slots = upload.service_config.get("sheetKind") == "schedule_slots"
+            for row, item in zip(rows, items):
+                row["summary"] = resource_summary(upload, item, with_slots)
+        return Response({**paging, "levels": upload.service_config["resources"]["levels"], "filtering": filtering, "resources": rows})
 
     def flat(self, upload, resources, params):
         """Every resource (or only the bookable leaves) in path order, for a search-as-you-type dropdown."""
@@ -543,13 +612,25 @@ class BookingsView(SessionView):
         persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard", "manage_payments")
         session_key = request.session.session_key or ""
         bookings = Booking.objects.filter(upload=upload).select_related("resource")
-        lookup = None
+        verified = verified_of(request)
+        masked = False
         if persona["id"] == "booker" or request.query_params.get("mine") == "1":
-            lookup = lookup_of(request.query_params)
-            if lookup:  # bookings made on any device under this name and number
-                bookings = bookings.filter(phone=lookup[1], booker__iexact=lookup[0])
-            else:
-                bookings = bookings.filter(created_by_session=session_key) if session_key else bookings.none()
+            # 비회원 예약 조회: made in this browser, or found by name and phone; either way shown masked until the PIN opens one
+            masked = True
+            mine = Q(id__in=verified)
+            if session_key:
+                mine |= Q(created_by_session=session_key)
+            name = str(request.query_params.get("name") or "").strip()[:200]
+            phone = phone_digits(request.query_params.get("phone"))
+            if request.query_params.get("name") or request.query_params.get("phone"):
+                if request.query_params.get("phone") and not phone:
+                    fail("전화번호를 010-1234-5678처럼 입력해 주세요.")
+                # either one finds them; the list stays masked and each still opens only with its PIN
+                found = Q(phone=phone) if phone else Q()
+                if name:
+                    found &= Q(booker__iexact=name)
+                mine = found & ~Q(password="")
+            bookings = bookings.filter(mine)
         elif persona["id"] in ("staff", "org_manager"):
             scope = (request.query_params.get("scope") or "").strip()
             if not scope:
@@ -578,8 +659,14 @@ class BookingsView(SessionView):
             if len(digits) >= 4:
                 matches |= Q(phone__contains=digits)
             bookings = bookings.filter(matches)
+        if masked:  # a booker's own list: what is coming, soonest first, then what is over, latest first
+            today = timezone.localdate()
+            live = Q(status__in=ACTIVE, date__gte=today)
+            bookings = bookings.annotate(over=Case(When(live, then=Value(0)), default=Value(1), output_field=IntegerField()),
+                                         soon=Case(When(live, then=F("date")), default=None),
+                                         late=Case(When(live, then=None), default=F("date"))).order_by("over", "soon", F("late").desc(nulls_last=True), "-created_at")
         items, paging = paginated(bookings, request)
-        return Response({**paging, "bookings": [booking_payload(item, session_key, lookup=lookup, reveal=lookup is not None or persona["id"] == "booker")
+        return Response({**paging, "bookings": [booking_payload(item, session_key, verified=verified, reveal=persona["id"] == "booker", masked=masked)
                                                 for item in items]})
 
     def post(self, request, pk):
@@ -631,6 +718,11 @@ class BookingsView(SessionView):
             fail("전화번호를 010-1234-5678처럼 입력해 주세요.")
         if persona["id"] == "booker" and not phone:
             fail("예약 확인과 1인 예약 수 확인을 위해 전화번호를 입력해 주세요.")
+        pin = str(data.get("password") or "")
+        if pin and not PIN.fullmatch(pin):
+            fail("예약 비밀번호는 숫자 4자리로 입력해 주세요.")
+        if persona["id"] == "booker" and not pin:
+            fail("예약을 다시 확인할 때 쓸 비밀번호 숫자 4자리를 정해 주세요.")
         purpose = text_field(data, "purpose", 2000)
         with transaction.atomic():
             if resource is not None:
@@ -652,9 +744,11 @@ class BookingsView(SessionView):
             booking = Booking.objects.create(upload=upload, resource=resource, slot=slot, booker=booker, phone=phone,
                                              created_by_session=request.session.session_key, party_size=party, date=day,
                                              starts_at=starts, ends_at=ends, time_slot=time_slot, status=status,
-                                             status_label="", purpose=purpose, requested_at=timezone.now())
+                                             status_label="", purpose=purpose, requested_at=timezone.now(),
+                                             password=make_password(pin) if pin else "")
             BookingEvent.objects.create(booking=booking, from_status="", to_status=status, persona=persona["id"])
-        return Response(booking_payload(booking, request.session.session_key, events=True, reveal=True), status=201)
+        # the reply to the booker who just made it is theirs; opening it again later takes the PIN
+        return Response(booking_payload(booking, request.session.session_key, events=True, verified={str(booking.id)}, reveal=True), status=201)
 
 
 class BookingView(SessionView):
@@ -665,10 +759,10 @@ class BookingView(SessionView):
         persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments")
         booking = get_object_or_404(Booking.objects.select_related("resource"), pk=booking_id, upload=upload)
         session_key = request.session.session_key or ""
-        lookup = lookup_of(request.query_params)
-        if persona["id"] == "booker" and not owns(booking, session_key, lookup):
-            fail("내 예약만 볼 수 있습니다.")
-        return Response(booking_payload(booking, session_key, events=True, lookup=lookup, reveal=True))
+        verified = verified_of(request)
+        if persona["id"] == "booker" and not owns(booking, session_key, verified):
+            fail("예약 비밀번호를 입력해야 상세 내용을 볼 수 있습니다.")
+        return Response(booking_payload(booking, session_key, events=True, verified=verified, reveal=True))
 
     def patch(self, request, pk, booking_id):
         upload = service_upload(request, pk)
@@ -689,18 +783,20 @@ class BookingView(SessionView):
                 BookingEvent.objects.create(booking=booking, from_status=booking.status, to_status=booking.status,
                                             persona=persona["id"], note=PAYMENT_ACTIONS[action] + (f" · {note}" if note else ""))
             return Response(booking_payload(booking, request.session.session_key or "", events=True, reveal=True))
+        if action == "edit":
+            return _edit(request, upload, persona, booking_id, data)
         if action not in ACTIONS:
             fail("승인·거절·취소·이용 시작·완료 중 하나를 선택해 주세요.")
         note = text_field(data, "note", 2000, required=action == "reject")
         allowed_from, target = ACTIONS[action]
         session_key = request.session.session_key or ""
-        lookup = lookup_of(data) if persona["id"] == "booker" else None
+        verified = verified_of(request)
         with transaction.atomic():
             booking = get_object_or_404(Booking.objects.select_for_update(of=("self",)).select_related("resource"),
                                         pk=booking_id, upload=upload)
             if persona["id"] == "booker":
-                if not owns(booking, session_key, lookup):
-                    fail("내 예약만 바꿀 수 있습니다.")
+                if not owns(booking, session_key, verified):
+                    fail("예약 비밀번호를 입력한 뒤에 바꿀 수 있습니다.")
                 if action != "cancel":
                     fail("예약자는 취소만 할 수 있습니다.")
             elif persona["id"] not in REVIEW_PERSONAS:
@@ -716,7 +812,80 @@ class BookingView(SessionView):
                 booking.processing_note = note
             booking.save(update_fields=["status", "status_label", "processing_note", "updated_at"])
             BookingEvent.objects.create(booking=booking, from_status=previous, to_status=target, persona=persona["id"], note=note)
-        return Response(booking_payload(booking, session_key, events=True, lookup=lookup, reveal=True))
+        return Response(booking_payload(booking, session_key, events=True, verified=verified, reveal=True))
+
+
+EDITABLE = ("requested", "approved", "waiting", "won")
+
+
+def _edit(request, upload, persona, booking_id, data):
+    """A booker changes the party size or the request of an open booking; a bigger party must still fit."""
+    if persona["id"] != "booker":
+        fail("예약자만 예약 내용을 수정할 수 있습니다.")
+    if set(data) - {"persona", "action", "party_size", "purpose"}:
+        fail("인원과 요청 사항만 수정할 수 있습니다. 날짜를 바꾸려면 취소하고 다시 예약해 주세요.")
+    party = data.get("party_size")
+    if party is not None and (type(party) is not int or not 1 <= party <= 100_000):
+        fail("인원은 1 이상의 정수로 입력해 주세요.")
+    purpose = text_field(data, "purpose", 2000) if "purpose" in data else None
+    session_key = request.session.session_key or ""
+    verified = verified_of(request)
+    with transaction.atomic():
+        booking = get_object_or_404(Booking.objects.select_for_update(of=("self",)).select_related("resource"), pk=booking_id, upload=upload)
+        if not owns(booking, session_key, verified):
+            fail("예약 비밀번호를 입력한 뒤에 수정할 수 있습니다.")
+        if booking.status not in EDITABLE or (booking.date and booking.date < timezone.localdate()):
+            fail("진행 중인 예약만 수정할 수 있습니다.")
+        changes = []
+        if party is not None and party != (booking.party_size or 1):
+            if party > (booking.party_size or 1):  # only growing can overfill
+                if booking.slot_id:
+                    _slot_check(Slot.objects.select_for_update().get(pk=booking.slot_id), party - (booking.party_size or 1))
+                elif booking.resource_id:
+                    rules, _ = rules_for(upload.service_config, booking.resource)
+                    held = occupancy(booking, rules)
+                    if held is not None:
+                        Resource.objects.select_for_update().get(pk=booking.resource_id)
+                        try:
+                            ensure_capacity(upload, booking.resource, rules, held[:3], party, exclude=booking.pk)
+                        except RuleError as exc:
+                            fail(str(exc))
+            changes.append(f"인원 {booking.party_size or 1}→{party}명")
+            booking.party_size = party
+        if purpose is not None and purpose != booking.purpose:
+            changes.append("요청 사항")
+            booking.purpose = purpose
+        if not changes:
+            fail("바뀐 내용이 없습니다.")
+        booking.save(update_fields=["party_size", "purpose", "updated_at"])
+        BookingEvent.objects.create(booking=booking, from_status=booking.status, to_status=booking.status,
+                                    persona=persona["id"], note="예약 수정 · " + ", ".join(changes))
+    return Response(booking_payload(booking, session_key, events=True, verified=verified, reveal=True))
+
+
+class BookingUnlockView(SessionView):
+    """The PIN chosen when booking opens that one booking in this browser: its details, changes and cancelling."""
+    parser_classes = [JSONParser]
+
+    def post(self, request, pk, booking_id):
+        upload = service_upload(request, pk)
+        booking = get_object_or_404(Booking.objects.select_related("resource"), pk=booking_id, upload=upload)
+        pin = str((request.data if isinstance(request.data, dict) else {}).get("password") or "")
+        if not PIN.fullmatch(pin):
+            fail("예약할 때 정한 비밀번호 숫자 4자리를 입력해 주세요.")
+        tries_key = f"booking-unlock:{booking.pk}"
+        tries = cache.get(tries_key, 0)
+        if tries >= LOOKUP_TRIES:
+            fail("비밀번호를 여러 번 틀려 10분 동안 열 수 없습니다. 잠시 뒤 다시 시도해 주세요.")
+        if not booking.password or not check_password(pin, booking.password):
+            cache.set(tries_key, tries + 1, LOOKUP_LOCK_SECONDS)
+            left = LOOKUP_TRIES - tries - 1
+            fail("비밀번호가 맞지 않습니다." + (f" {left}번 더 틀리면 10분 동안 열 수 없습니다." if 0 < left <= 2 else ""))
+        cache.delete(tries_key)
+        if not request.session.session_key:
+            request.session.create()
+        request.session[VERIFIED] = sorted(verified_of(request) | {str(booking.id)})[-200:]
+        return Response(booking_payload(booking, request.session.session_key, events=True, verified=verified_of(request), reveal=True))
 
 
 BULK_LIMIT = 100

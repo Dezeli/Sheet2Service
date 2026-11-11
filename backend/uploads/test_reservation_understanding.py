@@ -82,7 +82,7 @@ class ContractTests(SimpleTestCase):
         self.assertEqual([state["value"] for state in understanding["booking"]["states"]],
                          ["승인대기", "예약완료", "체크아웃", "취소"])  # 노쇼 is not in the data
         booker = next(persona for persona in understanding["personas"] if persona["id"] == "booker")
-        self.assertEqual(booker["features"], ["browse_resources", "make_reservation", "inquiry", "my_reservations"])
+        self.assertEqual(booker["features"], ["browse_resources", "make_reservation", "inquiry", "my_reservations", "notices"])  # boards always on
         admin = next(persona for persona in understanding["personas"] if persona["id"] == "admin")
         self.assertIn("manage_data", admin["features"])
         self.assertEqual([persona["id"] for persona in understanding["personas"]], ["booker", "admin", "org_manager"])
@@ -102,7 +102,7 @@ class ContractTests(SimpleTestCase):
         self.assertEqual({state["value"] for state in understanding["booking"]["states"]},
                          {"예약완료", "승인대기", "체크아웃", "취소"})
         self.assertEqual([persona["id"] for persona in understanding["personas"]], ["booker", "admin"])
-        self.assertEqual(understanding["personas"][0]["features"], ["browse_resources", "make_reservation", "my_reservations"])
+        self.assertEqual(understanding["personas"][0]["features"], ["browse_resources", "make_reservation", "my_reservations", "inquiry", "notices"])
         self.assertTrue(any("booker 페르소나" in note for note in notes))
 
     def test_aggregate_sheets_get_no_booking_flow_and_a_viewer(self):
@@ -204,4 +204,3 @@ class PairingTests(SimpleTestCase):
         admin = next(p for p in understanding["personas"] if p["id"] == "admin")
         self.assertIn("manage_notices", admin["features"])
         self.assertIn("inquiry", booker["features"])
-        self.assertTrue(any("manage_notices" in note for note in notes))

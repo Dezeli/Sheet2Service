@@ -61,6 +61,10 @@ class Inquiry(models.Model):
     body = models.TextField()
     answer = models.TextField(blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.RECEIVED)
+    author = models.CharField(max_length=200, blank=True)  # who asked, shown half hidden on the board
+    phone = models.CharField(max_length=20, blank=True)  # digits; only staff see it, to call back
+    is_private = models.BooleanField(default=True)  # private ones open with their PIN; public ones anyone may read
+    password = models.CharField(max_length=128, blank=True)  # hashed 4-digit PIN, required when private
     created_by_session = models.CharField(max_length=40, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -142,6 +146,7 @@ class Booking(models.Model):
     source_row = models.ForeignKey(ManagedRow, null=True, blank=True, on_delete=models.SET_NULL)
     booker = models.CharField(max_length=200, blank=True)
     phone = models.CharField(max_length=20, blank=True, db_index=True)  # digits only; who the booker is without sign-in
+    password = models.CharField(max_length=128, blank=True)  # hashed 4-digit PIN; with name and phone it finds the booking again
     created_by_session = models.CharField(max_length=40, blank=True, db_index=True)
     party_size = models.PositiveIntegerField(null=True, blank=True)
     date = models.DateField(null=True, blank=True, db_index=True)

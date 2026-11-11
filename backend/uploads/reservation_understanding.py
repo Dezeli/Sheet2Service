@@ -19,6 +19,7 @@ BOOKING_MODES = ("approval", "instant", "lottery", "record_only", "none")
 BOOKING_UNITS = ("day", "time_slot", "time_range", "stay", "period")
 STATE_KINDS = ("requested", "approved", "rejected", "cancelled", "in_use", "completed", "waiting", "won", "lost", "other")
 PERSONAS = ("booker", "admin", "staff", "org_manager", "finance", "viewer")
+BOARD_FEATURES = {"booker": ("inquiry", "notices"), "admin": ("reply_inquiries", "manage_notices")}
 FEATURES = ("browse_resources", "make_reservation", "my_reservations", "inquiry", "notices",
             "manage_resources", "manage_schedule", "review_reservations", "reply_inquiries", "manage_notices",
             "manage_data", "dashboard", "manage_payments")
@@ -288,6 +289,12 @@ def validate_understanding(value, report):
             persona["features"] = [f for f in persona["features"] if f not in ("make_reservation", "my_reservations")]
     # Notices and inquiries come in pairs: whoever reads them needs someone who writes or answers them.
     by_id = {persona["id"]: persona for persona in personas}
+    # a service with bookers and an admin always has both boards; whether the sheet hinted at them does not matter
+    if "booker" in by_id and "admin" in by_id:
+        for persona_id, features in BOARD_FEATURES.items():
+            for feature in features:
+                if feature not in by_id[persona_id]["features"]:
+                    by_id[persona_id]["features"].append(feature)
     for reader, writer in (("notices", "manage_notices"), ("inquiry", "reply_inquiries")):
         readers = [p for p in personas if reader in p["features"]]
         writers = [p for p in personas if writer in p["features"]]
