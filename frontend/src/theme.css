@@ -15,11 +15,11 @@
   background: #eff8f7;
   line-height: 1.55;
 }
-main { max-width: 1180px; padding: 40px 24px 64px; }
+main { max-width: 1400px; padding: 40px 24px 64px; }
 #root { min-height: 100dvh; display: flex; flex-direction: column; }
 #root > main { width: 100%; flex: 1; }
 .site-footer { border-top: 1px solid var(--line); background: #e8f3f1; }
-.site-footer-inner { max-width: 1180px; margin: 0 auto; padding: 28px 24px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px 32px; }
+.site-footer-inner { max-width: 1400px; margin: 0 auto; padding: 28px 24px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px 32px; }
 .site-footer-brand { font-weight: 800; letter-spacing: -.03em; }
 .site-footer-contact { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; font-size: .88rem; overflow-wrap: anywhere; }
 .site-footer-contact svg { flex-shrink: 0; }

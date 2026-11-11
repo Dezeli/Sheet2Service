@@ -459,3 +459,249 @@
   .service-page .ledger-stats__body .top-resources { padding-left: 0; border-left: 0; }
   .service-page .ledger-stats__body .top-resources h3 { margin-top: 18px; }
 }
+
+/* the latest notice, one line above a booker's screens */
+.service-page .notice-ticker { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 12px 10px 14px; border-radius: 12px;
+  background: var(--c-warn-soft); border: 1px solid color-mix(in srgb, var(--c-warn) 22%, transparent); min-width: 0; }
+.service-page .notice-ticker__tag { flex-shrink: 0; padding: 2px 8px; border-radius: 6px; background: var(--c-warn); color: white; font-size: .76rem; font-weight: 700; }
+.service-page .notice-ticker__item { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; color: var(--graphite); text-decoration: none; animation: ticker-in 260ms ease; }
+.service-page .notice-ticker__item strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.service-page .notice-ticker__item:hover strong { text-decoration: underline; text-underline-offset: 3px; }
+.service-page .notice-ticker__item time { flex-shrink: 0; font-size: .8rem; color: var(--graphite-3); }
+.service-page .notice-ticker__steps { flex-shrink: 0; display: inline-flex; align-items: center; gap: 2px; color: var(--graphite-3); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.service-page .notice-ticker__steps button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 0; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; }
+.service-page .notice-ticker__steps button:hover { background: color-mix(in srgb, var(--c-warn) 12%, transparent); color: var(--graphite); }
+@keyframes ticker-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .service-page .notice-ticker__item { animation: none; } }
+@media (max-width: 560px) { .service-page .notice-ticker__item time, .service-page .notice-ticker__count { display: none; } }
+.service-page .inquiry-item.is-focused { border-color: color-mix(in srgb, var(--c-warn) 45%, transparent); box-shadow: 0 0 0 3px var(--c-warn-soft); }
+
+/* Browse on a wide screen: categories | catalog | the chosen entry, side by side; the right side stays in view while the list scrolls. */
+.service-page .browse-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(360px, 420px); gap: 20px; align-items: start; }
+.service-page .browse-layout.is-flat { grid-template-columns: minmax(0, 1fr) minmax(340px, 400px); }
+.service-page .browse-layout > .panel { margin: 0; }
+.service-page .browse-groups { position: sticky; top: 16px; display: grid; gap: 2px; }
+.service-page .browse-groups__title { margin: 4px 12px 8px; font-size: .78rem; font-weight: 600; color: var(--graphite-3); }
+.service-page .browse-groups button { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--graphite-2); font-weight: 500; text-align: left; }
+.service-page .browse-groups button small { color: var(--graphite-4); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.service-page .browse-groups button:hover { background: var(--shelf); color: var(--graphite); }
+.service-page .browse-groups button[aria-current] { background: var(--signage-soft); color: var(--signage); font-weight: 650; }
+.service-page .browse-groups button[aria-current] small { color: var(--signage); }
+
+.service-page .browse-catalog__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.service-page .browse-catalog__head h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.01em; }
+.service-page .browse-filters { display: grid; gap: 6px; margin: 4px 0 8px; }
+.service-page .browse-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+.service-page .browse-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-height: 104px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 12px;
+  background: var(--sheet); color: var(--graphite); text-align: left; font-weight: 400; transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
+.service-page .browse-card:hover { border-color: color-mix(in srgb, var(--signage) 45%, var(--rule)); box-shadow: 0 6px 18px #0f172a10; transform: translateY(-1px); }
+.service-page .browse-card.is-chosen { border-color: var(--signage); box-shadow: 0 0 0 3px var(--signage-soft); }
+.service-page .browse-card__path { font-size: .76rem; color: var(--graphite-3); }
+.service-page .browse-card__name { font-size: .98rem; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.service-page .browse-card__facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; color: var(--graphite-3); }
+.service-page .browse-card__facts b { color: var(--graphite); font-weight: 600; }
+.service-page .browse-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: auto 0 0; font-size: .82rem; color: var(--graphite-2); }
+.service-page .browse-meta.is-quiet { color: var(--graphite-4); }
+.service-page .browse-meta__when { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--c-info); }
+.service-page .browse-meta__when em { font-style: normal; font-weight: 400; color: var(--graphite-3); }
+.service-page .browse-meta__recent { color: var(--graphite-4); }
+
+.service-page .browse-detail { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
+.service-page .browse-detail__head { display: flex; align-items: flex-start; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.service-page .browse-detail__head h3 { margin: 0; font-size: 1.15rem; line-height: 1.4; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.service-page .browse-detail__path { margin: 0 0 4px; font-size: .78rem; color: var(--graphite-3); }
+.service-page .browse-detail__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 14px 0 0; }
+.service-page .browse-detail__facts dt { font-size: .76rem; color: var(--graphite-3); }
+.service-page .browse-detail__facts dd { margin: 2px 0 0; font-size: .92rem; font-weight: 600; }
+.service-page .browse-detail__label { margin: 18px 0 8px; font-size: .8rem; font-weight: 600; color: var(--graphite-3); }
+.service-page .browse-detail__cta { margin-top: 18px; display: flex; justify-content: flex-end; }
+.service-page .browse-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.service-page .browse-rows li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; background: var(--sheet); }
+.service-page .browse-rows li.is-drill { cursor: pointer; color: var(--graphite-3); }
+.service-page .browse-rows li.is-drill:hover { border-color: color-mix(in srgb, var(--signage) 45%, var(--rule)); }
+.service-page .browse-rows li.is-full { opacity: .6; }
+.service-page .browse-rows__text { display: grid; gap: 4px; min-width: 0; }
+.service-page .browse-rows__text strong { font-size: .92rem; font-weight: 600; color: var(--graphite); overflow-wrap: anywhere; }
+.service-page .browse-rows button[data-intent=primary] { flex-shrink: 0; min-height: 34px; padding: 4px 14px; font-size: .86rem; }
+
+/* the catalog as one calm list: series small, the distinguishing name large, one fact at the right */
+.service-page .browse-list { display: grid; margin-top: 12px; border-top: 1px solid var(--rule); }
+.service-page .browse-item { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 16px; min-height: 64px; padding: 12px 14px 12px 16px;
+  border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: transparent; color: var(--graphite); text-align: left; font-weight: 400;
+  box-shadow: inset 3px 0 0 transparent; transition: background 120ms ease, box-shadow 120ms ease; }
+.service-page .browse-item:hover { background: var(--shelf); }
+.service-page .browse-item.is-chosen { background: var(--signage-soft); box-shadow: inset 3px 0 0 var(--signage); }
+.service-page .browse-item > .ui-icon { color: var(--graphite-4); }
+.service-page .browse-item.is-chosen > .ui-icon { color: var(--signage); }
+.service-page .browse-item__name { display: grid; gap: 2px; min-width: 0; }
+.service-page .browse-item__name small { font-size: .76rem; color: var(--graphite-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .browse-item__name strong { font-size: 1rem; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.service-page .browse-item.is-chosen .browse-item__name strong { color: var(--signage); }
+.service-page .browse-item .browse-meta { margin: 0; justify-content: flex-end; font-size: .82rem; color: var(--graphite-3); white-space: nowrap; }
+.service-page .browse-meta b { color: var(--graphite); font-weight: 600; }
+
+/* One surface for list and detail: the chosen row runs into the detail side, which shares its tint, so the two read as one thing. */
+.service-page .browse-layout { grid-template-columns: 200px minmax(0, 1fr); }
+.service-page .browse-layout.is-flat { grid-template-columns: minmax(0, 1fr); }
+.service-page .browse-pair { --pair-pad: 24px; --pair-tint: color-mix(in srgb, var(--signage) 6%, var(--sheet));
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); padding: 0; overflow: clip; }
+.service-page .browse-catalog { padding: var(--pair-pad); min-width: 0; }
+.service-page .browse-pair .browse-detail { position: sticky; top: 0; align-self: stretch; max-height: none; padding: var(--pair-pad); margin: 0; border: 0; border-left: 1px solid var(--rule);
+  border-radius: 0; background: var(--pair-tint); }
+.service-page .browse-pair .browse-list { margin-right: calc(-1 * var(--pair-pad)); }
+.service-page .browse-pair .browse-item { position: relative; padding-right: calc(14px + var(--pair-pad)); }
+.service-page .browse-pair .browse-item.is-chosen { background: var(--pair-tint); box-shadow: inset 3px 0 0 var(--signage); border-bottom-color: color-mix(in srgb, var(--signage) 14%, var(--rule)); }
+/* the chosen row opens through the divider into the detail side */
+.service-page .browse-pair .browse-item.is-chosen::after { content: ''; position: absolute; top: 0; bottom: -1px; right: -1px; width: 2px; background: var(--pair-tint); }
+.service-page .browse-pair .browse-detail .browse-rows li { background: var(--sheet); }
+.service-page .browse-pair .browse-detail__head { border-bottom-color: color-mix(in srgb, var(--signage) 14%, var(--rule)); }
+
+/* Reserving on a wide screen: when on the left, who and the summary on the right, the button always in view. */
+.service-page.service-dialog.reserve-dialog { width: min(1000px, 94vw); padding: 24px 28px 28px; }
+.service-page .reserve-columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr); gap: 0 28px; align-items: start; }
+.service-page .reserve-when { display: grid; gap: 16px; min-width: 0; }
+.service-page .reserve-side { display: grid; gap: 16px; min-width: 0; padding: 18px 20px 20px; border-radius: 14px;
+  background: color-mix(in srgb, var(--signage) 5%, var(--sheet)); border: 1px solid color-mix(in srgb, var(--signage) 12%, var(--rule)); position: sticky; top: 0; }
+.service-page .reserve-side > label { display: grid; gap: 6px; }
+.service-page .reserve-side .reserve-person { grid-template-columns: minmax(0, 1fr); }
+.service-page .reserve-side .reserve-info { margin: 0; }
+.service-page .reserve-side textarea { min-height: 72px; }
+.service-page .reserve-side .reserve-footer { flex-direction: column; align-items: stretch; gap: 14px; padding-top: 16px; border-top-color: color-mix(in srgb, var(--signage) 14%, var(--rule)); }
+.service-page .reserve-side .reserve-summary strong { font-size: 1.02rem; color: var(--graphite); }
+.service-page .reserve-side .reserve-footer button[type=submit] { width: 100%; min-height: 48px; font-size: 1rem; }
+.service-page .reserve-preset { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; font-weight: 600; }
+.service-page .reserve-when .calendar { margin: 0; }
+.service-page .reserve-missing { font-size: .84rem; font-weight: 600; color: var(--c-warn); }
+
+/* The reserve dialog keeps one size from the moment it opens; choices fill the space inside it and scroll there, never resize it. */
+.service-page.service-dialog.reserve-dialog { height: min(780px, calc(100dvh - 48px)); overflow: hidden; }
+.service-page.service-dialog.reserve-dialog[open] { display: flex; flex-direction: column; }
+.service-page.service-dialog.reserve-dialog > form { flex: 1; min-height: 0; }
+.service-page.reserve-dialog .reserve-columns { height: 100%; align-items: stretch; }
+.service-page.reserve-dialog .reserve-when { overflow-y: auto; align-content: start; padding-right: 6px; scrollbar-gutter: stable; }
+.service-page.reserve-dialog .reserve-side { position: static; overflow-y: auto; align-content: start; }
+.service-page .reserve-wait { margin: 0; padding: 16px; border: 1px dashed var(--rule); border-radius: 10px; color: var(--graphite-4); font-size: .88rem; }
+.service-page.reserve-dialog .reserve-columns { min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.service-page.reserve-dialog .reserve-when, .service-page.reserve-dialog .reserve-side { min-height: 0; max-height: 100%; }
+.service-page.reserve-dialog .reserve-when { padding-bottom: 12px; }
+
+/* 비회원 예약: a 4-digit PIN set when booking and asked again to look bookings up */
+.service-page .reserve-pin { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.service-page .reserve-pin label { display: grid; gap: 6px; }
+.service-page .reserve-pin small { grid-column: 1 / -1; font-size: .8rem; }
+.service-page .reserve-pin input { letter-spacing: .3em; }
+.service-page .my-lookup { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 150px auto auto; }
+.service-page .my-lookup__hint { grid-column: 1 / -1; margin: 0 0 2px; font-size: .84rem; color: var(--graphite-3); }
+.service-page .my-lookup input[type=password] { letter-spacing: .2em; }
+.service-page .reserve-pin label, .service-page .reserve-pin input { min-width: 0; width: 100%; }
+.service-page .reserve-pin__note { color: var(--graphite-3); }
+.service-page .reserve-pin__note.is-bad { color: var(--c-danger); font-weight: 600; }
+/* the summary and the button stay at the bottom of the form side while its fields scroll */
+.service-page.reserve-dialog .reserve-side { padding-bottom: 0; }
+.service-page.reserve-dialog .reserve-side .reserve-footer { position: sticky; bottom: 0; z-index: 1; margin: 0 -20px; padding: 14px 20px 20px;
+  background: color-mix(in srgb, var(--signage) 5%, var(--sheet)); box-shadow: 0 -10px 16px -12px #0f172a26; }
+
+/* 내 예약: one quiet row per booking, half-hidden until its PIN opens it */
+.service-page .my-lookup { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; }
+.service-page .my-bookings { list-style: none; margin: 4px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+.service-page .my-bookings li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 16px; padding: 14px 4px; border-bottom: 1px solid var(--rule); }
+.service-page .my-bookings__main { display: grid; gap: 3px; min-width: 0; }
+.service-page .my-bookings__main strong { font-size: 1rem; font-weight: 600; }
+.service-page .my-bookings__when { font-size: .9rem; color: var(--graphite-2); }
+.service-page .my-bookings__who { font-size: .82rem; color: var(--graphite-3); font-variant-numeric: tabular-nums; }
+.service-page .my-bookings button { min-height: 36px; padding: 6px 14px; }
+.service-page.service-dialog.pin-dialog { width: min(400px, 94vw); }
+.service-page .pin-form { display: grid; gap: 14px; }
+.service-page .pin-form p { margin: 0; }
+.service-page .pin-form label { display: grid; gap: 6px; font-size: .9rem; }
+.service-page .pin-form input { font-size: 1.4rem; letter-spacing: .6em; text-align: center; }
+.service-page .pin-form button { min-height: 46px; }
+.service-page .my-edit { display: grid; gap: 14px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--rule); }
+.service-page .my-edit label { display: grid; gap: 6px; }
+.service-page .my-edit p { margin: 0; font-size: .84rem; }
+.service-page .my-lookup { grid-template-columns: minmax(0, 420px) auto auto; justify-content: start; }
+
+/* 내 예약, refined: the date leads each row; finding other devices' bookings sits quietly in the header */
+.service-page .my-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 18px; margin-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.service-page .my-head h2 { margin: 0; }
+.service-page .my-head__sub { margin: 6px 0 0 38px; font-size: .86rem; color: var(--graphite-3); }
+.service-page .my-find { display: flex; align-items: center; gap: 8px; flex: 0 1 520px; }
+.service-page .my-find__field { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 12px; height: 42px; border: 1px solid var(--ui-border); border-radius: 10px; background: var(--sheet); color: var(--graphite-4); }
+.service-page .my-find__field:focus-within { border-color: var(--signage); box-shadow: 0 0 0 3px var(--signage-soft); color: var(--signage); }
+.service-page .my-find__field input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; box-shadow: none !important; outline: none; color: var(--graphite); }
+.service-page .my-find button[type=submit] { height: 42px; min-height: 42px; padding: 0 18px; }
+
+.service-page .my-bookings { border-top: 0; margin-top: 0; }
+.service-page .my-bookings li { grid-template-columns: 64px minmax(0, 1fr) auto auto; gap: 20px; padding: 16px 8px; border-bottom: 1px solid var(--rule); transition: background 120ms ease; }
+.service-page .my-bookings li:hover { background: var(--shelf); }
+.service-page .my-bookings li:last-child { border-bottom: 0; }
+.service-page .my-date { display: grid; justify-items: center; align-content: center; gap: 1px; width: 64px; height: 68px; border-radius: 12px;
+  background: var(--signage-soft); color: var(--signage); line-height: 1.1; }
+.service-page .my-date b { font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.service-page .my-date small { font-size: .72rem; font-weight: 600; }
+.service-page .my-bookings li.tone-pending .my-date { background: var(--c-warn-soft); color: var(--c-warn); }
+.service-page .my-bookings li.is-done .my-date { background: var(--shelf); color: var(--graphite-4); }
+.service-page .my-bookings li.is-done .my-bookings__main strong, .service-page .my-bookings li.is-done .my-bookings__when { color: var(--graphite-3); }
+.service-page .my-bookings__main { gap: 4px; }
+.service-page .my-bookings__main strong { font-size: 1.02rem; }
+.service-page .my-bookings__who { display: inline-flex; align-items: center; gap: 5px; }
+.service-page .my-bookings__who .ui-icon { color: var(--graphite-4); }
+.service-page .my-open { display: inline-flex; align-items: center; gap: 2px; min-height: 38px; padding: 6px 10px 6px 14px; border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--sheet); color: var(--graphite-2); font-weight: 600; font-size: .88rem; }
+.service-page .my-open:hover { border-color: var(--signage); color: var(--signage); background: var(--signage-soft); }
+.service-page .my-find__field input[type=search] { border: 0 !important; border-radius: 0; padding: 0 !important; min-height: 0; height: 100%; background: transparent !important; box-shadow: none !important; }
+
+/* The service's own name heads every page; the role switch is a quiet demo control on the right. */
+.service-page .service-topline { margin-bottom: 0; }
+.service-page .service-title-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.service-page .service-site-title { font-size: 1.45rem; font-weight: 750; letter-spacing: -.02em; color: var(--graphite); text-decoration: none; }
+.service-page .service-site-title:hover { color: var(--signage); }
+.service-page .service-title-line .ui-icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; color: var(--graphite-4); }
+.service-page .service-source-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: var(--graphite-4); }
+.service-page .service-source-icon:hover { background: var(--shelf); color: var(--signage); }
+.service-page.service-dialog.rename-dialog { width: min(440px, 94vw); }
+.service-page[data-role=user] .service-page-header { border-bottom: 0; padding-bottom: 8px; margin-bottom: 8px; }
+.service-page .service-source-file { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 420px; margin-left: 6px; padding: 5px 10px; border-radius: 8px;
+  color: var(--graphite-3); font-size: .82rem; text-decoration: none; border: 1px solid transparent; }
+.service-page .service-source-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .service-source-file:hover { color: var(--signage); background: var(--signage-soft); }
+
+/* 문의 board: a calm numbered list; private posts carry a lock and open with their PIN */
+.service-page .board-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 18px; margin-bottom: 4px; border-bottom: 1px solid var(--rule); }
+.service-page .board-head h2 { margin: 0; }
+.service-page .board-head__sub { margin: 6px 0 0 38px; font-size: .86rem; color: var(--graphite-3); }
+.service-page .board-list { list-style: none; margin: 0; padding: 0; }
+.service-page .board-list li { border-bottom: 1px solid var(--rule); }
+.service-page .board-list button { display: grid; grid-template-columns: 48px 88px minmax(0, 1fr) 120px 110px; align-items: center; gap: 16px; width: 100%; min-height: 58px;
+  padding: 10px 8px; border: 0; border-radius: 0; background: transparent; color: var(--graphite); text-align: left; font-weight: 400; }
+.service-page .board-list button:hover { background: var(--shelf); }
+.service-page .board-list button:hover .board-list__title strong { color: var(--signage); }
+.service-page .board-list__no { font-size: .82rem; color: var(--graphite-4); text-align: center; font-variant-numeric: tabular-nums; }
+.service-page .board-list .service-badge { justify-self: start; }
+.service-page .board-list__title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.service-page .board-list__title .ui-icon { flex-shrink: 0; color: var(--graphite-4); }
+.service-page .board-list__title strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.service-page .board-list__author, .service-page .board-list__date { font-size: .86rem; color: var(--graphite-3); font-variant-numeric: tabular-nums; }
+
+.service-page.service-dialog.inquiry-write { width: min(680px, 94vw); }
+.service-page .inquiry-write__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.service-page .inquiry-write__grid > label { display: grid; gap: 6px; align-content: start; }
+.service-page .inquiry-write__grid small { font-size: .78rem; }
+.service-page .inquiry-write__wide { grid-column: 1 / -1; }
+.service-page .inquiry-write__privacy { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 4px; }
+
+.service-page.service-dialog.inquiry-read { width: min(680px, 94vw); }
+.service-page .inquiry-read__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 14px; font-size: .86rem; color: var(--graphite-3); }
+.service-page .inquiry-read__private { display: inline-flex; align-items: center; gap: 4px; }
+.service-page .inquiry-read__subject { margin: 0 0 12px; font-size: .86rem; color: var(--c-info); }
+.service-page .inquiry-read__answer { margin-top: 20px; padding: 16px 18px; border-radius: 12px; background: var(--c-approve-soft); }
+.service-page .inquiry-read__answer.is-waiting { background: var(--shelf); color: var(--graphite-3); }
+.service-page .inquiry-read__answer h3 { margin: 0 0 6px; font-size: .9rem; color: var(--c-approve); }
+.service-page .inquiry-read__answer.is-waiting h3 { color: var(--graphite-3); }
+.service-page .inquiry-read__answer p { margin: 0; }
+.service-page .inquiry-write__grid { align-items: start; } .service-page .inquiry-write__grid > label { align-self: start; margin: 0; }
+
+/* how many things wait for staff, beside the menu entry that handles them */
+.service-page .admin-sidebar nav > button .menu-badge { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--c-danger); color: white; font-size: .74rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }

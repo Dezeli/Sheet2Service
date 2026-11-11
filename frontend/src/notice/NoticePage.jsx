@@ -14,7 +14,7 @@ async function api(url, options = {}) {
 const dateText = (value) => new Date(value).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 
 /** Published notices for everyone; drafts, editing and publishing for admins. */
-export default function NoticePage({ uploadId, title, admin = false }) {
+export default function NoticePage({ uploadId, title, admin = false, focus = '' }) {
   const [list, setList] = useState({ notices: [], page: 1, count: 0, has_next: false });
   const [csrf, setCsrf] = useState('');
   const [editor, setEditor] = useState(null);
@@ -33,6 +33,15 @@ export default function NoticePage({ uploadId, title, admin = false }) {
     return () => { active = false; };
   }, [uploadId, admin]);
 
+  // a notice named in the address opens on arrival, even when it is not on the first page
+  const [focused, setFocused] = useState(null);
+  useEffect(() => {
+    setFocused(null);
+    if (!focus || admin) return;
+    api(`${base}${focus}/`).then(setFocused).catch(() => setFocused(null));
+  }, [uploadId, focus, admin]);
+  useEffect(() => { if (focused) document.getElementById(`notice-${focused.id}`)?.scrollIntoView({ block: 'center' }); }, [focused]);
+  const shown = focused && !list.notices.some((item) => item.id === focused.id) ? [focused, ...list.notices] : list.notices;
   const load = (page = 1) => api(listUrl(page)).then(setList).catch((caught) => setError(caught.message));
   async function save(event) {
     event.preventDefault();
@@ -91,7 +100,8 @@ export default function NoticePage({ uploadId, title, admin = false }) {
           </tr>)}</tbody>
         </table>
       </div>}
-      {!admin && <div className="inquiry-list">{list.notices.map((item) => <details key={item.id} className="inquiry-item">
+      {!admin && <div className="inquiry-list">{shown.map((item) => <details key={`${item.id}-${focused?.id === item.id}`} id={`notice-${item.id}`}
+        className={`inquiry-item${focused?.id === item.id ? ' is-focused' : ''}`} open={focused?.id === item.id || undefined}>
         <summary><strong>{item.title}</strong>
           <span className="summary-meta"><small className="muted">{dateText(item.published_at || item.updated_at)}</small></span>
         </summary>

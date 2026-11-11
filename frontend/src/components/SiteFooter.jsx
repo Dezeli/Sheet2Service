@@ -3,7 +3,7 @@ import React from 'react';
 export default function SiteFooter({ email = 'firoms@ajou.ac.kr' }) {
   return <footer className="site-footer">
     <div className="site-footer-inner">
-      <span className="site-footer-brand">Sheet2Service</span>
+      <a className="site-footer-brand" href="/" title="Sheet2Service 첫 화면">Sheet2Service</a>
       <span className="site-footer-contact">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="3" y="5" width="18" height="14" rx="3" />

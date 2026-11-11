@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ServiceDialog from '../components/ServiceDialog';
 import { api, jsonOptions, query, whenText } from './api.js';
-import { WEEKDAY_NAMES, attributeText, formatPhoneInput, moment, perPersonText, phoneDigits, rememberBooker, rememberedBooker, rulesOf } from './rules.js';
+import { WEEKDAY_NAMES, attributeText, formatPhoneInput, moment, perPersonText, phoneDigits, rulesOf } from './rules.js';
 import { IconButton, Seats, Stepper } from '../components/ui';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -10,6 +10,7 @@ const monthOf = (text) => text.slice(0, 7);
 const addDays = (text, days) => { const d = new Date(`${text}T00:00:00`); d.setDate(d.getDate() + days); return iso(d); };
 const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+const dayText = (text) => { const d = new Date(`${text}T00:00:00`); return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`; };
 
 /** An always-open month calendar. Single pick, or a range when `range` is set (two taps). Full and closed days are off. */
 function Calendar({ uploadId, persona, resource, start, end, range, stay, onChange }) {
@@ -119,13 +120,21 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
   const [fromBlock, setFromBlock] = useState(null);
   const [toBlock, setToBlock] = useState(null);
   const [party, setParty] = useState(1);
-  const [booker, setBooker] = useState(() => (persona.id === 'booker' ? rememberedBooker().name : ''));
-  const [phone, setPhone] = useState(() => (persona.id === 'booker' ? rememberedBooker().phone : ''));
+  const [booker, setBooker] = useState('');
+  const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [pin, setPin] = useState('');
+  const [pinAgain, setPinAgain] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const timed = Boolean(ruled) && !usesSlots && (mode === 'time_slot' || mode === 'time_range');
+  // the dialog never grows, so the next choice is brought into view inside it instead
+  const timeStep = useRef(null);
+  const endStep = useRef(null);
   const [day, dayError] = useDayState(uploadId, persona, resource, start, timed);
+  const reveal = (ref) => ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  useEffect(() => { if (day) reveal(timeStep); }, [day]);
+  useEffect(() => { if (fromBlock !== null) reveal(endStep); }, [fromBlock]);
 
   useEffect(() => {
     if (!target) return;
@@ -181,13 +190,21 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
   const isBooker = persona.id === 'booker';
   const needsName = isBooker || Boolean(booking.bookerColumn);
   const phoneOk = phone ? Boolean(phoneDigits(phone)) : !isBooker;
+  // a booker picks a 4-digit PIN: with the name and phone it opens this booking from any device
+  const pinOk = !isBooker || (pin.length === 4 && pin === pinAgain);
   const sessionInfo = rules.sessions.find((item) => item.label === session);
+  // the choice so far in words, and what is still missing
   const summary = slot ? whenText(slot, mode)
-    : mode === 'stay' && start && end ? `${start} 입실 · ${end} 퇴실 (${daysBetween(start, end)}박)`
-    : mode === 'period' && start && end ? (start === end ? `${start} (1일)` : `${start} ~ ${end} (${daysBetween(start, end) + 1}일)`)
-    : mode === 'time_range' && start ? `${start} ${fromBlock !== null ? blocks[fromBlock].start : '--'}~${toBlock !== null ? blocks[toBlock].end : '--'}`
-    : mode === 'time_slot' && start ? `${start}${session ? ` ${session}${sessionInfo?.start && sessionInfo.label !== `${sessionInfo.start}~${sessionInfo.end}` ? ` (${sessionInfo.start}~${sessionInfo.end})` : ''}` : ''}`
-    : start;
+    : !start ? ''
+    : mode === 'stay' ? (end ? `${dayText(start)} 입실 → ${dayText(end)} 퇴실 · ${daysBetween(start, end)}박` : `${dayText(start)} 입실`)
+    : mode === 'period' ? (end ? (start === end ? `${dayText(start)} · 1일` : `${dayText(start)} → ${dayText(end)} · ${daysBetween(start, end) + 1}일`) : `${dayText(start)}부터`)
+    : mode === 'time_range' ? `${dayText(start)}${fromBlock !== null ? ` ${blocks[fromBlock].start}~${toBlock !== null ? blocks[toBlock].end : ''}` : ''}`
+    : mode === 'time_slot' ? `${dayText(start)}${session ? ` ${session}${sessionInfo?.start && sessionInfo.label !== `${sessionInfo.start}~${sessionInfo.end}` ? ` (${sessionInfo.start}~${sessionInfo.end})` : ''}` : ''}`
+    : dayText(start);
+  const missing = slot || !start ? '' : (mode === 'stay' || mode === 'period') && !end ? (mode === 'stay' ? '퇴실일을 고르세요' : '종료일을 고르세요')
+    : mode === 'time_range' && fromBlock === null ? '시작 시각을 고르세요'
+    : mode === 'time_slot' && !session ? '시간대를 고르세요' : '';
+  const hint = missing || (ready && !pinOk ? '예약 비밀번호 4자리를 정하세요' : '');
 
   async function submit(event) {
     event.preventDefault();
@@ -195,6 +212,7 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
     setBusy(true); setError('');
     const body = { persona: persona.id, booker, purpose };
     if (phone) body.phone = phone;
+    if (isBooker) body.password = pin;
     if (party) body.party_size = Number(party);
     if (slot) body.slot_id = slot.id;
     else {
@@ -209,7 +227,6 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
     }
     try {
       const created = await api(`/api/uploads/${uploadId}/bookings/`, jsonOptions('POST', csrf, body));
-      if (isBooker) rememberBooker(booker.trim(), formatPhoneInput(phone));
       onDone(created);
     }
     catch (caught) { setError(caught.message); }
@@ -219,14 +236,12 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
   const info = resource ? Object.entries(resource.attributes || {}).filter(([key]) => ['기록 기준 금액', '평일금액', '주말금액', '성수기금액', '요금', '금액', '이용료', '정원', '이용시작시간', '이용종료시간'].includes(key)) : [];
   const title = `${slot?.resource_name || resource?.name || ''} 예약`;
   return <ServiceDialog title={title} busy={busy} error={error} onClose={onClose} className="reserve-dialog">
-    <form onSubmit={submit}><fieldset className="reserve-form" disabled={busy}>
+    <form onSubmit={submit}><fieldset className="reserve-form reserve-columns" disabled={busy}>
+      <div className="reserve-when">
       {resource && resource.path.split(' / ').slice(-2, -1)[0] && resource.path.split(' / ').slice(-2, -1)[0] !== resource.name && <p className="muted reserve-path" title={resource.path.split(' / ').join(' › ')}>{resource.path.split(' / ').slice(-2, -1)[0]}</p>}
-      {(info.length > 0 || resource?.capacity) && <dl className="reserve-info">
-        {resource?.capacity && <div><dt>{byPeople ? '정원' : '동시 예약'}</dt><dd>{resource.capacity}{byPeople ? '명' : '건'}</dd></div>}
-        {info.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{attributeText(key, value)}</dd></div>)}
-      </dl>}
       {!ruled && <p className="muted" role="status">예약 규칙을 불러오는 중입니다.</p>}
-      {ruled && bookerNote(rules) && <p className="muted reserve-rule">{bookerNote(rules)}</p>}
+      {presetSlot && <div className="reserve-step"><span className="field-label">회차</span><p className="reserve-preset">{whenText(presetSlot, mode)}
+        {presetSlot.capacity !== null && <Seats remaining={presetSlot.remaining} total={presetSlot.capacity} unit="명" />}</p></div>}
       {usesSlots && !presetSlot && <div className="reserve-step">
         <span className="field-label">회차</span>
         {slots === null && <p className="muted">회차를 불러오는 중입니다.</p>}
@@ -243,7 +258,9 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
         <Calendar uploadId={uploadId} persona={persona} resource={resource} start={start} end={end}
           range={mode === 'stay' || mode === 'period'} stay={mode === 'stay'} onChange={pickDay} />
       </div>}
-      {timed && start && <div className="reserve-step">
+      {timed && !start && <div className="reserve-step"><span className="field-label">{mode === 'time_slot' ? '시간대' : `시간 (${step}분 단위)`}</span>
+        <p className="reserve-wait">날짜를 고르면 고를 수 있는 시간이 여기에 나옵니다.</p></div>}
+      {timed && start && <div className="reserve-step" ref={timeStep}>
         <span className="field-label">{mode === 'time_slot' ? '시간대' : `시간 (${step}분 단위)`}</span>
         {dayError && <p className="error">{dayError}</p>}
         {!day && !dayError && <p className="muted">남은 시간을 확인하는 중입니다.</p>}
@@ -264,26 +281,43 @@ export default function ReserveDialog({ uploadId, service, persona, csrf, resour
             aria-pressed={fromBlock === index} onClick={() => { setFromBlock(index); setToBlock(minSteps === 1 ? index : index + minSteps - 1); }}>
             <span>{block.start}</span>{day.limit > 1 && <Seats compact remaining={block.remaining} total={day.limit} />}</button>)}</div>
           {fromBlock !== null && <><span className="field-label">종료</span>
-            <div className="chip-group" role="group" aria-label="종료 시각">{endChoices.map((index) => <button type="button" key={blocks[index].end}
+            <div className="chip-group" role="group" aria-label="종료 시각" ref={endStep}>{endChoices.map((index) => <button type="button" key={blocks[index].end}
               className={`chip${toBlock === index ? ' is-selected' : ''}`} aria-pressed={toBlock === index} onClick={() => setToBlock(index)}>
               {blocks[index].end}<small>{((index - fromBlock + 1) * step) % 60 ? `${(index - fromBlock + 1) * step}분` : `${((index - fromBlock + 1) * step) / 60}시간`}</small></button>)}</div></>}
         </>}
       </div>}
+      </div>
+      <div className="reserve-side">
+      {(info.length > 0 || resource?.capacity) && <dl className="reserve-info">
+        {resource?.capacity && <div><dt>{byPeople ? '정원' : '동시 예약'}</dt><dd>{resource.capacity}{byPeople ? '명' : '건'}</dd></div>}
+        {info.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{attributeText(key, value)}</dd></div>)}
+      </dl>}
+      {ruled && bookerNote(rules) && <p className="muted reserve-rule">{bookerNote(rules)}</p>}
       <div className="reserve-step reserve-inline">
         <span className="field-label">인원</span>
         <Stepper label="인원" value={party} min={1} max={partyMax} unit="명" onChange={setParty} />
       </div>
       <div className="reserve-person">
         <label>예약자 이름{needsName ? '' : ' (선택)'}<input type="text" required={needsName} maxLength={200} autoComplete="name" value={booker} onChange={(event) => setBooker(event.target.value)} /></label>
-        <label>전화번호{isBooker ? '' : ' (선택)'}<input type="tel" inputMode="tel" required={isBooker} maxLength={20} autoComplete="tel" placeholder="010-1234-5678"
+        <label>전화번호{isBooker ? '' : ' (선택)'}<input type="tel" inputMode="tel" required={isBooker} maxLength={20} autoComplete="tel"
           aria-invalid={phone.length >= 12 && !phoneDigits(phone)} value={phone} onChange={(event) => setPhone(formatPhoneInput(event.target.value))} /></label>
       </div>
       {phone.length >= 12 && !phoneDigits(phone) && <p className="error">전화번호를 다시 확인해 주세요.</p>}
+      {isBooker && <div className="reserve-pin">
+        <label>예약 비밀번호<input type="password" inputMode="numeric" required maxLength={4} autoComplete="new-password" placeholder="숫자 4자리"
+          value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))} /></label>
+        <label>비밀번호 확인<input type="password" inputMode="numeric" required maxLength={4} autoComplete="new-password" placeholder="한 번 더"
+          aria-invalid={pinAgain.length === 4 && pin !== pinAgain} value={pinAgain} onChange={(event) => setPinAgain(event.target.value.replace(/\D/g, '').slice(0, 4))} /></label>
+        <small className={`reserve-pin__note${pinAgain.length === 4 && pin !== pinAgain ? ' is-bad' : ''}`}>{pinAgain.length === 4 && pin !== pinAgain ? '두 비밀번호가 다릅니다.' : '내 예약에서 이름, 전화번호와 함께 입력해 예약을 확인합니다.'}</small>
+      </div>}
       <label>요청 사항 (선택)<textarea rows={3} maxLength={2000} value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
       <div className="reserve-footer">
-        <p className="reserve-summary">{summary ? <strong>{summary}</strong> : <span className="muted">날짜를 고르세요</span>}
-          {booking.approvalRequired && <small className="muted">관리자 승인 후 확정</small>}</p>
-        <button type="submit" data-intent="primary" disabled={busy || !csrf || !ready || !ruled || !phoneOk}>{busy ? '접수 중…' : booking.approvalRequired ? '예약 신청' : '예약하기'}</button>
+        <div className="reserve-summary"><span className="field-label">선택한 일정</span>
+          {summary ? <strong>{summary}</strong> : <span className="muted">{usesSlots ? '왼쪽에서 회차를 고르세요' : '왼쪽 달력에서 날짜를 고르세요'}</span>}
+          {hint && <span className="reserve-missing">{hint}</span>}
+          <small className="muted">{party}명{booking.approvalRequired ? ' · 관리자 승인 후 확정' : ''}</small></div>
+        <button type="submit" data-intent="primary" disabled={busy || !csrf || !ready || !ruled || !phoneOk || !pinOk}>{busy ? '접수 중…' : booking.approvalRequired ? '예약 신청' : '예약하기'}</button>
+      </div>
       </div>
     </fieldset></form>
   </ServiceDialog>;

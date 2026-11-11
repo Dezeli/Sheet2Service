@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import SectionIcon from '../components/SectionIcon';
-import { ChoiceCombobox, Empty, Icon } from '../components/ui';
+import { ChoiceCombobox, Empty, Icon, IconButton } from '../components/ui';
+import ServiceDialog from '../components/ServiceDialog';
 import { NavContext, placeHref } from './nav';
 import InquiryPage, { InquiryMetrics } from '../inquiry/InquiryPage';
+import InquiryBoard from '../inquiry/InquiryBoard';
 import NoticePage from '../notice/NoticePage';
+import NoticeTicker from '../notice/NoticeTicker';
 import AdminPreview from '../admin/AdminPreview';
 import ServicePreviewV2 from '../preview/ServicePreviewV2';
-import { api, featureLabels, hasFeature, modeLabels, personaIcons, query } from './api.js';
+import { api, featureLabels, hasFeature, modeLabels, query } from './api.js';
 import ResourceBrowser from './ResourceBrowser';
 import MyBookings from './MyBookings';
 import BookingReview from './BookingReview';
@@ -119,6 +122,9 @@ export default function BookingService({ uploadId, page }) {
   const [scope, setScope] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [fieldLabels, setFieldLabels] = useState({});
+  const [badges, setBadges] = useState({}); // menu key → things waiting for staff
+  const [renaming, setRenaming] = useState(null); // the draft service name while an admin renames it
+  const [renameError, setRenameError] = useState('');
   useEffect(() => {
     let active = true;
     Promise.all([api(`/api/uploads/${uploadId}/service/`), api('/api/session/')])
@@ -145,6 +151,32 @@ export default function BookingService({ uploadId, page }) {
     const home = service.personas.find((item) => hasHome(item) && hasFeature(item, 'review_reservations')) || service.personas.find(hasHome);
     if (home) window.location.replace(placeHref(uploadId, home.id, 'dashboard'));
   }, [page, service]);
+  // what is waiting for staff, as numbers beside the menu: re-read when the screen changes and every minute
+  useEffect(() => {
+    const me = service?.personas?.find((item) => item.id === page);
+    if (!me || roleOf(me.id) !== 'admin' || (['staff', 'org_manager'].includes(me.id) && !scope)) { setBadges({}); return undefined; }
+    let active = true;
+    const refresh = async () => {
+      const next = {};
+      const asks = [];
+      if (hasFeature(me, 'review_reservations', 'manage_payments')) {
+        asks.push(api(`/api/uploads/${uploadId}/bookings/stats/${query({ persona: me.id, scope })}`).then((stats) => {
+          if (hasFeature(me, 'review_reservations')) next.review = stats.counts.requested; // the same 승인 대기 the dashboard and the quick filter show
+          if (hasFeature(me, 'manage_payments')) next.payments = stats.payments?.unpaid || 0;
+        }).catch(() => {}));
+      }
+      if (hasFeature(me, 'reply_inquiries')) {
+        asks.push(api(`/api/uploads/${uploadId}/inquiries/stats/`).then((stats) => { next.inquiries = stats.counts.received; }).catch(() => {}));
+      }
+      await Promise.all(asks);
+      if (active) setBadges(next);
+    };
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    return () => { active = false; clearInterval(timer); };
+  }, [uploadId, page, service, scope, menu]);
+  // the browser tab carries the service's own name
+  useEffect(() => { const name = service?.title || service?.subject; if (name && page !== 'summary') document.title = name; }, [service?.title, service?.subject, page]);
   if (page === 'summary') {
     if (error) return <main className="service-page"><p className="error" role="alert">{error}</p></main>;
     if (!data) return <main className="service-page"><p role="status">분석 결과를 불러오는 중입니다.</p></main>;
@@ -155,24 +187,42 @@ export default function BookingService({ uploadId, page }) {
   const active = items.some((item) => item.key === menu) ? menu : items[0]?.key;
   const needsScope = persona && ['staff', 'org_manager'].includes(persona.id);
   const role = roleOf(persona?.id);
-  const title = persona?.title || '서비스';
+  const siteTitle = service?.title || service?.subject || '예약 서비스';
+  const canRename = role === 'admin' && hasFeature(persona, 'review_reservations', 'manage_resources', 'manage_data');
+  async function rename(event) {
+    event.preventDefault();
+    try {
+      const response = await fetch(`/api/uploads/${uploadId}/service/`, { method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf }, body: JSON.stringify({ persona: persona.id, title: renaming }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.detail || '이름을 바꾸지 못했습니다.');
+      setData((current) => ({ ...current, service: { ...current.service, title: result.service.title } })); setRenaming(null);
+    } catch (caught) { setRenameError(caught.message); }
+  }
   const report = data ? { ...data.upload.analysis, columns: data.upload.analysis.columns.map((column, index) => ({
     ...column, original_label: column.label, label: fieldLabels[String(index + 1)] || column.label })) } : null;
 
   const nav = { uploadId, page, go, has: (key) => items.some((item) => item.key === key) };
   return <NavContext.Provider value={nav}><main className="service-page" data-role={role}>
     <header className="service-page-header">
-      <div className="service-topline"><a className="service-brand" href="/">Sheet2Service</a>
+      <div className="service-topline">
+        <span className="service-title-line">
+          <a className="service-site-title" href={data ? `/${uploadId}/${persona?.id || data.landing}` : '/'}>{data ? siteTitle : ''}</a>
+          {data && canRename && <IconButton icon="edit" label="서비스 이름 바꾸기" onClick={() => { setRenameError(''); setRenaming(siteTitle); }} />}
+          {data && role !== 'user' && <a className="service-source-file" href={`/api/uploads/${uploadId}/original/`} download title={`원본 시트 내려받기 · ${data.upload.name.normalize('NFC')}`}>
+            <Icon name="download" size={16} /><span>{data.upload.name.normalize('NFC')}</span></a>}
+        </span>
         <nav className="service-switch" aria-label="역할 이동">
           {personas.map((item) => <a key={item.id} href={`/${uploadId}/${item.id}`} aria-current={page === item.id ? 'page' : undefined}>{item.title}</a>)}
         </nav>
       </div>
-      <div className="service-heading-row"><h1 className="icon-heading"><SectionIcon name={personaIcons[persona?.id] || 'user'} />{title}</h1>
-        {data && role !== 'user' && <a className="service-source" href={`/api/uploads/${uploadId}/original/`} download title="원본 시트 내려받기">
-          <Icon name="download" size={16} />{data.upload.name}</a>}
-      </div>
-      {service && <p className="service-subject muted">{service.subject}{role === 'admin' ? ` · ${modeLabels[service.booking.mode]}` : ''}</p>}
     </header>
+    {renaming !== null && <ServiceDialog title="서비스 이름" error={renameError} onClose={() => setRenaming(null)} className="rename-dialog">
+      <form onSubmit={rename} className="form-grid">
+        <label>이용자에게 보이는 이름<input autoFocus required maxLength={40} value={renaming} onChange={(event) => setRenaming(event.target.value)} /></label>
+        <div className="dialog-actions"><button type="submit" data-intent="primary" disabled={!csrf || !renaming.trim()}>저장</button></div>
+      </form>
+    </ServiceDialog>}
     {error && <p className="error" role="alert">{error}</p>}
     {!error && !data && <p role="status">서비스 화면을 불러오는 중입니다.</p>}
     {data && !persona && <p className="error" role="alert">이 서비스에 없는 역할입니다. <a href={`/${uploadId}/${data.landing}`}>처음 화면으로</a></p>}
@@ -180,9 +230,12 @@ export default function BookingService({ uploadId, page }) {
       {needsScope && <ScopeBar uploadId={uploadId} persona={persona} scope={scope} onChange={setScope} />}
       <div className={role === 'admin' && items.length > 1 ? 'admin-shell' : undefined}>
         {role === 'admin' && items.length > 1 && <aside className="admin-sidebar">
-          <nav aria-label="관리 메뉴">{items.map((item) => <button type="button" key={item.key} aria-current={item.key === active ? 'page' : undefined} onClick={() => go(item.key)}><SectionIcon name={item.icon} />{item.label}</button>)}</nav></aside>}
+          <nav aria-label="관리 메뉴">{items.map((item) => <button type="button" key={item.key} aria-current={item.key === active ? 'page' : undefined} onClick={() => go(item.key)}>
+            <SectionIcon name={item.icon} />{item.label}
+            {badges[item.key] > 0 && <span className="menu-badge" aria-label={`처리할 것 ${badges[item.key]}건`}>{badges[item.key] > 99 ? '99+' : badges[item.key]}</span>}</button>)}</nav></aside>}
         {role !== 'admin' && items.length > 1 && <nav className="feature-tabs" aria-label="서비스 기능">
           {items.map((item) => <button type="button" key={item.key} aria-pressed={item.key === active} onClick={() => go(item.key)}><SectionIcon name={item.icon} />{item.label}</button>)}</nav>}
+        {role !== 'admin' && active !== 'notices' && items.some((item) => item.key === 'notices') && <NoticeTicker uploadId={uploadId} />}
         <div className={role === 'admin' && items.length > 1 ? 'admin-content' : undefined}>
           {active === 'browse' && <ResourceBrowser uploadId={uploadId} service={service} persona={persona} csrf={csrf} focus={focus} onReserved={() => setRefresh((n) => n + 1)} />}
           {active === 'mine' && <MyBookings uploadId={uploadId} service={service} persona={persona} csrf={csrf} refreshKey={refresh} />}
@@ -194,9 +247,9 @@ export default function BookingService({ uploadId, page }) {
             onSaved={(rules) => setData((current) => ({ ...current, service: { ...current.service,
               booking: { ...current.service.booking, rules, unit: rules.timeMode } } }))} />}
           {active === 'resources' && <ResourceAdmin uploadId={uploadId} service={service} persona={persona} csrf={csrf} />}
-          {active === 'inquiry' && <InquiryPage uploadId={uploadId} withResource={!service.resources.implicit} />}
+          {active === 'inquiry' && <InquiryBoard uploadId={uploadId} withResource={!service.resources.implicit} />}
           {active === 'inquiries' && <InquiryPage uploadId={uploadId} admin />}
-          {active === 'notices' && <NoticePage uploadId={uploadId} />}
+          {active === 'notices' && <NoticePage uploadId={uploadId} focus={focus} />}
           {active === 'notices_admin' && <NoticePage uploadId={uploadId} admin />}
           {active === 'dashboard' && <Dashboard uploadId={uploadId} service={service} persona={persona} scope={scope} />}
           {active === 'stats' && <div className="dashboard-data"><ServicePreviewV2 uploadId={uploadId} report={report} config={service.dashboard.preview} usedFallback={false} /></div>}

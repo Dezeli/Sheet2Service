@@ -81,12 +81,9 @@ export function formatPhoneInput(text) {
 
 // The last name and number a booker used in this tab, so the next booking and the lookup are filled in.
 const BOOKER_KEY = 'sheet2service.booker';
-export function rememberedBooker() {
-  try { return JSON.parse(sessionStorage.getItem(BOOKER_KEY)) || { name: '', phone: '' }; } catch { return { name: '', phone: '' }; }
-}
-export function rememberBooker(name, phone) {
-  try { sessionStorage.setItem(BOOKER_KEY, JSON.stringify({ name, phone })); } catch { /* storage may be unavailable */ }
-}
+// Name and phone are never kept in the browser: these pages are often used on shared PCs.
+// Clear what earlier versions stored.
+try { sessionStorage.removeItem(BOOKER_KEY); } catch { /* storage may be unavailable */ }
 
 export function perPersonText(rules) {
   const { limit, per } = rules.perPerson || {};

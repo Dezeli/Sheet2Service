@@ -81,7 +81,7 @@ const shortClock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 /** whenText for a table cell: numeric dates and 24-hour clocks so a range fits one line; the year only when it is not this one. */
 export function whenShort(item, unit = 'day') {
   const thisYear = new Date().getFullYear();
-  const at = (value) => { const d = value instanceof Date ? value : new Date(String(value).length === 10 ? `${value}T00:00:00` : value); return Number.isNaN(d.getTime()) ? null : d; };
+  const at = (value) => { if (!value) return null; const d = value instanceof Date ? value : new Date(String(value).length === 10 ? `${value}T00:00:00` : value); return Number.isNaN(d.getTime()) ? null : d; };
   const day = (d) => shortDay(d, d.getFullYear() !== thisYear);
   const start = at(item.starts_at); const end = at(item.ends_at);
   if (start && end) {
