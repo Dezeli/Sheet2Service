@@ -9,6 +9,8 @@ import json
 import re
 from copy import deepcopy
 
+from .personas import standard_personas
+
 SHEET_KINDS = ("booking_records", "resource_catalog", "schedule_slots", "wide_schedule", "aggregate", "policy",
                "unrelated")
 ROLES = ("resource", "resource_group", "resource_attribute", "capacity", "location", "contact", "url",
@@ -18,11 +20,10 @@ ROLES = ("resource", "resource_group", "resource_attribute", "capacity", "locati
 BOOKING_MODES = ("approval", "instant", "lottery", "record_only", "none")
 BOOKING_UNITS = ("day", "time_slot", "time_range", "stay", "period")
 STATE_KINDS = ("requested", "approved", "rejected", "cancelled", "in_use", "completed", "waiting", "won", "lost", "other")
-PERSONAS = ("booker", "admin", "staff", "org_manager", "finance", "viewer")
-BOARD_FEATURES = {"booker": ("inquiry", "notices"), "admin": ("reply_inquiries", "manage_notices")}
+PERSONAS = ("booker", "admin", "staff", "org_manager", "finance", "viewer", "operator", "field")
 FEATURES = ("browse_resources", "make_reservation", "my_reservations", "inquiry", "notices",
             "manage_resources", "manage_schedule", "review_reservations", "reply_inquiries", "manage_notices",
-            "manage_data", "dashboard", "manage_payments")
+            "manage_data", "dashboard", "manage_payments", "run_sessions")
 PERSONA_FEATURES = {
     "booker": ("browse_resources", "make_reservation", "my_reservations", "inquiry", "notices"),
     "admin": ("manage_resources", "manage_schedule", "review_reservations", "reply_inquiries", "manage_notices",
@@ -32,6 +33,8 @@ PERSONA_FEATURES = {
                     "notices", "reply_inquiries"),
     "finance": ("manage_payments", "dashboard", "browse_resources"),
     "viewer": ("browse_resources", "notices", "dashboard"),
+    "operator": ("dashboard", "review_reservations", "reply_inquiries", "run_sessions"),
+    "field": ("run_sessions",),
 }
 # Features every service of a kind gets even when the model leaves them out.
 REQUIRED_FEATURES = {
@@ -41,7 +44,7 @@ REQUIRED_FEATURES = {
 }
 MONEY_ROLES = ("payment", "amount")
 MAX_VALUE_LABELS = 80
-SCOPED_PERSONAS = ("staff", "org_manager")
+SCOPED_PERSONAS = ("staff", "org_manager", "operator")
 STATUS_ROLES = ("status", "approval", "cancel_flag", "lottery", "payment")
 RESOURCE_ROLES = ("resource", "resource_group")
 RESERVABLE_KINDS = ("booking_records", "resource_catalog", "schedule_slots", "wide_schedule", "policy")
@@ -289,12 +292,6 @@ def validate_understanding(value, report):
             persona["features"] = [f for f in persona["features"] if f not in ("make_reservation", "my_reservations")]
     # Notices and inquiries come in pairs: whoever reads them needs someone who writes or answers them.
     by_id = {persona["id"]: persona for persona in personas}
-    # a service with bookers and an admin always has both boards; whether the sheet hinted at them does not matter
-    if "booker" in by_id and "admin" in by_id:
-        for persona_id, features in BOARD_FEATURES.items():
-            for feature in features:
-                if feature not in by_id[persona_id]["features"]:
-                    by_id[persona_id]["features"].append(feature)
     for reader, writer in (("notices", "manage_notices"), ("inquiry", "reply_inquiries")):
         readers = [p for p in personas if reader in p["features"]]
         writers = [p for p in personas if writer in p["features"]]
@@ -308,7 +305,10 @@ def validate_understanding(value, report):
                     notes.append(f"{writer}가 있어 {persona_id}에 {reader}를 보충했습니다.")
                     break
     order = {persona_id: index for index, persona_id in enumerate(PERSONAS)}
-    result["personas"] = sorted(personas, key=lambda persona: order[persona["id"]])
+    personas = sorted(personas, key=lambda persona: order[persona["id"]])
+    # the model suggests; the roles themselves are fixed so no two share a duty (personas.py)
+    result["personas"] = standard_personas(personas, result["columnRoles"], result["booking"]["states"],
+                                           reservable=reservable, accepts_bookings=mode != "none")
 
     # Display names for code-like values (pt_room -> PT실): only on resource and status columns, once per value.
     labelled_columns = set(resources) | ({status_column} if status_column else set())

@@ -15,8 +15,9 @@ from django.utils import timezone
 
 from .analysis import missing
 from .managed import ensure_imported
-from .models import Booking, ManagedRow, Resource, Slot
+from .models import Booking, ManagedRow, Resource, Slot, Upload
 from .operational_signals import parse_date
+from .personas import standard_personas
 
 MAX_CHARTS = 4
 MAX_TABLE_COLUMNS = 14
@@ -181,6 +182,10 @@ def derive_service(understanding, report):
         "dashboard": {"preview": derive_dashboard(understanding, report, by_role)},
         "notes": [],
     }
+    # the same fixed roles whether the analysis is new or saved before the roles were fixed (personas.py)
+    if reservable and any(persona["id"] == "booker" for persona in config["personas"]):
+        config["personas"] = standard_personas(config["personas"], list(config.get("columnRoles") or []), config["booking"]["states"],
+                                               accepts_bookings=config["booking"].get("mode") != "none")
     if not reservable:
         for persona in config["personas"]:
             persona["features"] = [f for f in persona["features"]
@@ -643,4 +648,116 @@ def build_service(upload, understanding=None):
     _choice_options(upload, config)
     upload.service_config = config
     upload.save(update_fields=["service_config"])
+    config = settle_service(upload)
     return config, counts
+
+
+# ----------------------------------------------------------------------------- what the records settle
+
+SETTLE_VERSION = 4  # 2: one record of a course settles it; 3: a course's terms each become a session; 4: an event's showings
+FIXED_SHARE = 0.8  # this share of an item's records on one period makes that period its schedule
+PAID_SHARE = 0.05  # below this share of charged records a sheet's payment columns describe free programs
+
+
+def _clock_text(moment):
+    local = timezone.localtime(moment)
+    return f"{local.hour:02d}:{local.minute:02d}"
+
+
+MAX_TERMS = 12  # more repeated periods than this are a rental's busy hours, not a course's terms
+MAX_SHOWINGS = 3  # an event's set times
+
+
+def _course_shaped(period):
+    """Weeks at the same hours: a start and an end on different days, with a clock time."""
+    starts, ends = period
+    if not starts or not ends:
+        return False
+    local = timezone.localtime(starts)
+    return local.date() != timezone.localtime(ends).date() and (local.hour, local.minute) != (0, 0)
+
+
+def _fixed_sessions(upload):
+    """An item whose records fall on a few set periods runs on that schedule: each period becomes a session of the
+    item and its records count against it, so bookers enrol instead of picking a time.
+
+    A course may run several terms (autumn, spring) at the same hours: each term is a session, and one record is
+    enough for a course's shape. A one-day item needs nearly all its records on up to three set times (an event);
+    otherwise it is a rental and keeps letting bookers choose."""
+    by_item = {}
+    rows = Booking.objects.filter(upload=upload, resource__isnull=False, starts_at__isnull=False, slot__isnull=True)
+    for resource_id, starts, ends in rows.values_list("resource_id", "starts_at", "ends_at"):
+        by_item.setdefault(resource_id, Counter())[(starts, ends)] += 1
+    taken = set(Slot.objects.filter(upload=upload).values_list("resource_id", flat=True))
+    made = []
+    for resource_id, periods in by_item.items():
+        if resource_id in taken:
+            continue
+        total = sum(periods.values())
+        terms = [period for period in periods if _course_shaped(period)]
+        showings = [period for period, count in periods.most_common(MAX_SHOWINGS) if count >= 2]
+        if terms and len(terms) <= MAX_TERMS and sum(periods[period] for period in terms) / total >= FIXED_SHARE:
+            chosen = terms  # a course: every term it ran, even a term only one person signed up for
+        elif showings and sum(periods[period] for period in showings) / total >= FIXED_SHARE:
+            chosen = showings  # an event: a few set times (two showings of a talk) hold nearly every record
+        else:
+            continue  # times vary: a rental, where bookers keep choosing
+        for starts, ends in sorted(chosen, key=lambda period: period[0]):
+            made.append(Slot(upload=upload, resource_id=resource_id, date=timezone.localtime(starts).date(), starts_at=starts, ends_at=ends,
+                             time_slot=f"{_clock_text(starts)}~{_clock_text(ends)}" if _course_shaped((starts, ends)) else ""))
+    Slot.objects.bulk_create(made)
+    for slot in made:
+        Booking.objects.filter(upload=upload, resource_id=slot.resource_id, starts_at=slot.starts_at, ends_at=slot.ends_at,
+                               slot__isnull=True).update(slot=slot)
+    return len(made)
+
+
+def fee_text(amount):
+    return "무료" if not amount else f"{int(amount):,}원"
+
+
+def _fees(upload, config):
+    """The fee of each item, as most of its records charged it."""
+    if not config["booking"].get("amountColumn"):
+        return
+    by_item = {}
+    for resource_id, amount in Booking.objects.filter(upload=upload, resource__isnull=False, amount__isnull=False).values_list("resource_id", "amount"):
+        by_item.setdefault(resource_id, Counter())[amount] += 1
+    changed = []
+    for resource in Resource.objects.filter(upload=upload, pk__in=by_item):
+        attributes = dict(resource.attributes or {})
+        if "이용료" in attributes:
+            continue
+        attributes["이용료"] = fee_text(by_item[resource.pk].most_common(1)[0][0])
+        resource.attributes = attributes
+        changed.append(resource)
+    Resource.objects.bulk_update(changed, ["attributes"])
+
+
+def _charges_money(upload):
+    amounts = list(Booking.objects.filter(upload=upload, amount__isnull=False).values_list("amount", flat=True)[:20000])
+    return bool(amounts) and sum(1 for amount in amounts if amount > 0) / len(amounts) >= PAID_SHARE
+
+
+def settle_service(upload):
+    """Once per service: fixed schedules and fees read from the records, and a payment role only where money is taken.
+    Services built before this step get it the first time they open."""
+    config = upload.service_config
+    if not config or config.get("settled") == SETTLE_VERSION:
+        return config
+    with transaction.atomic():
+        locked = Upload.objects.select_for_update().get(pk=upload.pk)
+        config = locked.service_config
+        if config.get("settled") != SETTLE_VERSION:
+            if any(persona.get("id") == "booker" for persona in config.get("personas", [])):
+                if config.get("sheetKind") != "schedule_slots":
+                    _fixed_sessions(locked)
+                _fees(locked, config)
+                booking = config["booking"]
+                config["personas"] = standard_personas(config["personas"], list(config.get("columnRoles") or []), booking.get("states") or [],
+                                                       accepts_bookings=booking.get("mode") != "none", paid=_charges_money(locked))
+            config["settled"] = SETTLE_VERSION
+            locked.service_config = config
+            locked.save(update_fields=["service_config"])
+    upload.service_config = config
+    return config

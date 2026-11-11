@@ -56,7 +56,7 @@ class ScheduleView(SessionView):
     def get(self, request, pk):
         upload = service_upload(request, pk)
         config = upload.service_config
-        persona = requested_persona(request, config, "review_reservations", "manage_schedule")
+        persona = requested_persona(request, config, "review_reservations", "run_sessions")
         params = request.query_params
         start = iso_date(params.get("from") or "") if params.get("from") else None
         if params.get("from") and start is None:
@@ -79,13 +79,12 @@ class ScheduleView(SessionView):
         if params.get("group"):
             group = get_object_or_404(Resource, pk=identifier(params["group"]), upload=upload)
             resources = resources.filter(Q(path__startswith=group.path + " / ") | Q(pk=group.pk))
-        if persona["id"] in ("staff", "org_manager"):
-            scope = (params.get("scope") or "").strip()
-            if not scope:
-                fail("담당 범위를 선택해 주세요.")
+        scope = (params.get("scope") or "").strip()
+        if scope and persona.get("scopeColumn"):  # staff whose work splits by a column may narrow to their part
             scoped_ids = scope_filter(config, persona, scope, Booking.objects.filter(upload=upload)).values_list("resource_id", flat=True)
             resources = resources.filter(pk__in=scoped_ids)
         resources = resources.order_by("path")
+        pool = resources
 
         bookings = (Booking.objects.filter(upload=upload, resource__in=resources)
                     .filter(Q(date__gte=start, date__lt=end) | Q(starts_at__lt=timezone.make_aware(timezone.datetime.combine(end, timezone.datetime.min.time())),
@@ -131,6 +130,13 @@ class ScheduleView(SessionView):
         conflict_list = [{"resource": str(resource_id), "name": names[resource_id].name if resource_id in names else "", "path": names[resource_id].path if resource_id in names else "",
                           "date": day.isoformat(), "extra": extra, "capacity": capacities.get(resource_id)}
                          for (resource_id, day), extra in sorted(conflicts.items(), key=lambda item: (item[0][1], str(item[0][0])))]
+        # an empty week points at the nearest dates that have bookings, so the board never dead-ends
+        nearby = {}
+        if not total and not params.get("resource"):
+            near = Booking.objects.filter(upload=upload, resource__in=pool, date__isnull=False).exclude(status__in=("rejected", "cancelled", "lost"))
+            after = near.filter(date__gte=end).order_by("date").values_list("date", flat=True).first()
+            before = near.filter(date__lt=start).order_by("-date").values_list("date", flat=True).first()
+            nearby = {"next": after.isoformat() if after else None, "previous": before.isoformat() if before else None}
         return Response({"from": start.isoformat(), "days": [day.isoformat() for day in window], "page": page, "count": total,
                          "has_next": page * PAGE < total, "resources": rows, "conflicts": conflict_list[:200],
-                         "conflict_total": len(conflicts)})
+                         "conflict_total": len(conflicts), "nearby": nearby})

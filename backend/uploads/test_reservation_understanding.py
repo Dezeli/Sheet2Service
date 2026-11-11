@@ -82,10 +82,10 @@ class ContractTests(SimpleTestCase):
         self.assertEqual([state["value"] for state in understanding["booking"]["states"]],
                          ["승인대기", "예약완료", "체크아웃", "취소"])  # 노쇼 is not in the data
         booker = next(persona for persona in understanding["personas"] if persona["id"] == "booker")
-        self.assertEqual(booker["features"], ["browse_resources", "make_reservation", "inquiry", "my_reservations", "notices"])  # boards always on
+        self.assertEqual(booker["features"], ["browse_resources", "make_reservation", "my_reservations", "inquiry", "notices"])
         admin = next(persona for persona in understanding["personas"] if persona["id"] == "admin")
         self.assertIn("manage_data", admin["features"])
-        self.assertEqual([persona["id"] for persona in understanding["personas"]], ["booker", "admin", "org_manager"])
+        self.assertEqual([persona["id"] for persona in understanding["personas"]], ["booker", "operator", "field", "finance", "admin"])
         self.assertTrue(any("노쇼" not in note and "상태 값 1개" in note for note in notes))
         self.assertTrue(any("staff" in note for note in notes))
         self.assertIn("예약 대상 컬럼: 기관명 > 상품명", summary_lines(understanding, self.report))
@@ -101,7 +101,7 @@ class ContractTests(SimpleTestCase):
         self.assertEqual(understanding["booking"]["mode"], "approval")
         self.assertEqual({state["value"] for state in understanding["booking"]["states"]},
                          {"예약완료", "승인대기", "체크아웃", "취소"})
-        self.assertEqual([persona["id"] for persona in understanding["personas"]], ["booker", "admin"])
+        self.assertEqual([persona["id"] for persona in understanding["personas"]], ["booker", "operator", "field", "finance", "admin"])
         self.assertEqual(understanding["personas"][0]["features"], ["browse_resources", "make_reservation", "my_reservations", "inquiry", "notices"])
         self.assertTrue(any("booker 페르소나" in note for note in notes))
 

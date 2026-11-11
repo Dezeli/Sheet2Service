@@ -107,7 +107,8 @@ class DerivationTests(SimpleTestCase):
         self.assertEqual(view["template"], "table")
         self.assertEqual(view["charts"][0], {"type": "donut", "groupColumn": 7, "aggregate": "count"})
         self.assertIn({"type": "bar", "groupColumn": 2, "aggregate": "count"}, view["charts"])
-        self.assertEqual([persona["id"] for persona in config["personas"]], ["booker", "admin", "org_manager"])
+        # derivation alone trusts the payment columns; the records decide later whether money is taken (settle_service)
+        self.assertEqual([persona["id"] for persona in config["personas"]], ["booker", "operator", "field", "finance", "admin"])
 
     def test_sheets_without_resources_lose_the_booking_features(self):
         report = analyze(BOOKINGS)

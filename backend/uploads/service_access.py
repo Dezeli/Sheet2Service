@@ -4,7 +4,6 @@ from rest_framework.exceptions import ValidationError
 from .views import owned
 
 BOOKING_FEATURES = ("make_reservation", "my_reservations", "review_reservations", "manage_schedule")
-REVIEW_PERSONAS = ("admin", "staff", "org_manager", "finance")
 
 
 def service_upload(request, pk):

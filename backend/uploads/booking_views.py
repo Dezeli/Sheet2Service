@@ -1,6 +1,7 @@
 """Resources, slots and bookings of a generated reservation service. Deterministic; no model call."""
 import re
 import uuid
+from decimal import Decimal
 from collections import Counter
 from datetime import date as date_type
 
@@ -21,7 +22,8 @@ from .booking_rules import (ACTIVE, WHOLE_DAY, RuleError, default_rules, ensure_
                             validate_rules)
 from .models import Booking, BookingEvent, Resource, Slot
 from .reservation_service import parse_int, phone_digits
-from .service_access import REVIEW_PERSONAS, requested_persona, service_upload
+from .personas import may_take
+from .service_access import requested_persona, service_upload
 from .views import SessionView
 
 PAGE = 20
@@ -37,6 +39,19 @@ ACTIONS = {
     "complete": (("approved", "in_use", "won"), "completed"),
     "reopen": (("rejected", "cancelled", "completed", "other", "lost"), "requested"),
 }
+
+
+def fee_of(resource):
+    """The item's fee as a number, from the 이용료 the records or an admin gave it; None when it states none."""
+    if resource is None:
+        return None
+    text = str((resource.attributes or {}).get("이용료") or "").strip()
+    if not text:
+        return None
+    if text == "무료":
+        return Decimal(0)
+    digits = re.sub(r"[^\d]", "", text)
+    return Decimal(digits) if digits else None
 
 
 def fail(message):
@@ -277,6 +292,25 @@ def _matches_numbers(resource, limits):
     return True
 
 
+def closed_resources(upload):
+    """Items whose enrolment is over: a fixed-schedule item with no session still to come, and any group
+    every item under which is over. Items booked by picking a time are never over."""
+    today = timezone.localdate()
+    items = list(Resource.objects.filter(upload=upload, active=True).annotate(children_total=Count("children")).values_list("pk", "path", "children_total"))
+    with_sessions = set(Slot.objects.filter(upload=upload).values_list("resource_id", flat=True))
+    open_now = set(Slot.objects.filter(upload=upload, closed=False, date__gte=today).values_list("resource_id", flat=True))
+    leaf_over = {pk: pk in with_sessions and pk not in open_now for pk, _, children in items if not children}
+    over = {pk for pk, done in leaf_over.items() if done}
+    paths = {pk: path for pk, path, _ in items}
+    for pk, path, children in items:
+        if not children:
+            continue
+        under = [leaf_over[leaf] for leaf in leaf_over if paths[leaf].startswith(path + " / ")]
+        if under and all(under):
+            over.add(pk)
+    return over
+
+
 def resource_summary(upload, resource, with_slots):
     """What a booker wants on a card before opening it: how much sits under it, how busy it is, and the next open session."""
     under = Q(resource=resource) | Q(resource__path__startswith=resource.path + " / ")
@@ -286,7 +320,8 @@ def resource_summary(upload, resource, with_slots):
         .annotate(n=Count("children")).filter(n=0).count()
     summary = {"leaves": leaves, "booked": bookings.count(),
                "recent": (bookings.aggregate(last=models_max("date"))["last"] or None),
-               "upcoming": bookings.filter(status__in=ACTIVE, date__gte=today).count(), "next_slot": None, "open_slots": 0}
+               "upcoming": bookings.filter(status__in=ACTIVE, date__gte=today).count(), "next_slot": None, "open_slots": 0,
+               "slots": 0}
     if summary["recent"]:
         summary["recent"] = summary["recent"].isoformat()
     if with_slots:
@@ -294,6 +329,7 @@ def resource_summary(upload, resource, with_slots):
             .filter(Q(resource=resource) | Q(resource__path__startswith=resource.path + " / ")) \
             .select_related("resource").annotate(booked=SLOT_PEOPLE).order_by("date", "starts_at")
         summary["open_slots"] = slots.count()
+        summary["slots"] = Slot.objects.filter(upload=upload).filter(Q(resource=resource) | Q(resource__path__startswith=resource.path + " / ")).count()
         for slot in slots[:30]:
             item = slot_payload(slot, slot.booked or 0)
             if item["remaining"] is None or item["remaining"] > 0:
@@ -354,6 +390,10 @@ class ResourcesView(SessionView):
             resources = resources.filter(level=0)
         resources = resources.annotate(children_total=Count("children", distinct=True),
                                        active_bookings=Count("bookings", filter=Q(bookings__status__in=ACTIVE), distinct=True)).order_by("path")
+        closed = set()
+        if params.get("summary") == "1":  # a booker's catalog: what can still be joined first, what is over at the end
+            closed = closed_resources(upload)
+            resources = resources.annotate(over=Case(When(pk__in=closed, then=Value(1)), default=Value(0), output_field=IntegerField())).order_by("over", "path")
         if limits:
             matched = [item for item in resources[:5000] if _matches_numbers(item, limits)]
             try:
@@ -367,9 +407,9 @@ class ResourcesView(SessionView):
             paging = {"page": page, "count": len(matched), "size": size, "has_next": page * size < len(matched)}
         else:
             items, paging = paginated(resources, request)
-        rows = [resource_payload(item, item.children_total, item.active_bookings) for item in items]
+        rows = [{**resource_payload(item, item.children_total, item.active_bookings), "closed": item.pk in closed} for item in items]
         if params.get("summary") == "1":
-            with_slots = upload.service_config.get("sheetKind") == "schedule_slots"
+            with_slots = True  # fixed schedules can sit on any sheet now, not only on sheets of sessions
             for row, item in zip(rows, items):
                 row["summary"] = resource_summary(upload, item, with_slots)
         return Response({**paging, "levels": upload.service_config["resources"]["levels"], "filtering": filtering, "resources": rows})
@@ -609,7 +649,7 @@ class BookingsView(SessionView):
     def get(self, request, pk):
         upload = service_upload(request, pk)
         config = upload.service_config
-        persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard", "manage_payments")
+        persona = requested_persona(request, config, "my_reservations", "review_reservations", "dashboard", "manage_payments", "run_sessions")
         session_key = request.session.session_key or ""
         bookings = Booking.objects.filter(upload=upload).select_related("resource")
         verified = verified_of(request)
@@ -631,11 +671,8 @@ class BookingsView(SessionView):
                     found &= Q(booker__iexact=name)
                 mine = found & ~Q(password="")
             bookings = bookings.filter(mine)
-        elif persona["id"] in ("staff", "org_manager"):
-            scope = (request.query_params.get("scope") or "").strip()
-            if not scope:
-                fail("담당 범위를 선택해 주세요.")
-            bookings = scope_filter(config, persona, scope, bookings)
+        else:  # staff whose work splits by a column may narrow to their part; without one they see all
+            bookings = scope_filter(config, persona, (request.query_params.get("scope") or "").strip(), bookings)
         status = request.query_params.get("status")
         if status:
             if status not in Booking.Kind.values:
@@ -687,6 +724,10 @@ class BookingsView(SessionView):
             resource = get_object_or_404(Resource, pk=identifier(data["resource_id"]), upload=upload, active=True)
         elif Resource.objects.filter(upload=upload).exists():
             fail("예약할 항목을 선택해 주세요.")
+        if slot is not None and persona["id"] == "booker" and slot.date and slot.date < timezone.localdate():
+            fail("모집이 끝난 일정입니다.")
+        if resource is not None and slot is None and resource.slots.exists() and persona["id"] == "booker":
+            fail("일정이 정해진 항목입니다. 회차를 골라 신청해 주세요.")
         if resource is not None and slot is None:
             children = list(resource.children.filter(active=True).values_list("name", flat=True)[:4])
             if children:
@@ -741,7 +782,10 @@ class BookingsView(SessionView):
             status = "requested" if booking_cfg["approvalRequired"] else "approved"
             if persona["id"] != "booker":
                 status = data.get("status", "approved") if data.get("status") in ("requested", "approved") else "approved"
+            # the fee the item states; a free one is settled from the start, a charged one waits for the payment desk
+            fee = fee_of(resource) if booking_cfg.get("amountColumn") else None
             booking = Booking.objects.create(upload=upload, resource=resource, slot=slot, booker=booker, phone=phone,
+                                             amount=fee, payment=("무료" if fee == 0 else "미결제") if fee is not None and booking_cfg.get("paymentColumn") else "",
                                              created_by_session=request.session.session_key, party_size=party, date=day,
                                              starts_at=starts, ends_at=ends, time_slot=time_slot, status=status,
                                              status_label="", purpose=purpose, requested_at=timezone.now(),
@@ -756,7 +800,7 @@ class BookingView(SessionView):
 
     def get(self, request, pk, booking_id):
         upload = service_upload(request, pk)
-        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments")
+        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments", "run_sessions")
         booking = get_object_or_404(Booking.objects.select_related("resource"), pk=booking_id, upload=upload)
         session_key = request.session.session_key or ""
         verified = verified_of(request)
@@ -766,7 +810,7 @@ class BookingView(SessionView):
 
     def patch(self, request, pk, booking_id):
         upload = service_upload(request, pk)
-        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments")
+        persona = requested_persona(request, upload.service_config, "my_reservations", "review_reservations", "manage_payments", "run_sessions")
         data = request.data if isinstance(request.data, dict) else {}
         action = data.get("action")
         if action in PAYMENT_ACTIONS:
@@ -799,8 +843,8 @@ class BookingView(SessionView):
                     fail("예약 비밀번호를 입력한 뒤에 바꿀 수 있습니다.")
                 if action != "cancel":
                     fail("예약자는 취소만 할 수 있습니다.")
-            elif persona["id"] not in REVIEW_PERSONAS:
-                fail("이 역할에서는 예약을 처리할 수 없습니다.")
+            elif not may_take(persona, action):
+                fail("이 역할에서는 할 수 없는 처리입니다.")
             if booking.status not in allowed_from:
                 fail("현재 상태에서는 할 수 없는 처리입니다.")
             if action == "reopen":
@@ -897,13 +941,13 @@ class BookingBulkView(SessionView):
 
     def post(self, request, pk):
         upload = service_upload(request, pk)
-        persona = requested_persona(request, upload.service_config, "review_reservations")
-        if persona["id"] not in REVIEW_PERSONAS:
-            fail("이 역할에서는 예약을 처리할 수 없습니다.")
+        persona = requested_persona(request, upload.service_config, "review_reservations", "run_sessions")
         data = request.data if isinstance(request.data, dict) else {}
         action = data.get("action")
         if action not in ACTIONS:
             fail("승인·거절·취소·이용 시작·완료 중 하나를 선택해 주세요.")
+        if not may_take(persona, action):
+            fail("이 역할에서는 할 수 없는 처리입니다.")
         ids = data.get("ids")
         if not isinstance(ids, list) or not ids or len(ids) > BULK_LIMIT:
             fail(f"처리할 예약을 1~{BULK_LIMIT}건 골라 주세요.")
@@ -1023,10 +1067,8 @@ class BookingStatsView(SessionView):
     def get(self, request, pk):
         upload = service_upload(request, pk)
         config = upload.service_config
-        persona = requested_persona(request, config, "dashboard", "review_reservations", "manage_payments")
-        bookings = Booking.objects.filter(upload=upload)
-        if persona["id"] in ("staff", "org_manager") and request.query_params.get("scope"):
-            bookings = scope_filter(config, persona, request.query_params["scope"].strip(), bookings)
+        persona = requested_persona(request, config, "dashboard", "review_reservations", "manage_payments", "run_sessions")
+        bookings = scope_filter(config, persona, (request.query_params.get("scope") or "").strip(), Booking.objects.filter(upload=upload))
         counts = dict(bookings.values_list("status").annotate(n=Count("id")).values_list("status", "n"))
         today = timezone.localdate()
         top = (bookings.filter(resource__isnull=False).values("resource_id", "resource__name", "resource__path").annotate(n=Count("id")).order_by("-n")[:8])

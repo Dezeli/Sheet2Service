@@ -17,7 +17,7 @@ from .booking_rules import rules_of
 from .claude import InferenceError
 from .managed import ensure_imported, managed_chart_counts, managed_report, rows_page
 from .models import Upload
-from .reservation_service import build_service
+from .reservation_service import build_service, settle_service
 from .reservation_understanding import UnderstandingError, summary_lines
 from .reservation_understanding_request import (fingerprint, run_understanding, understanding_approval_summary,
                                                 understanding_request_body)
@@ -148,7 +148,7 @@ class ServiceView(SessionView):
         upload = owned(request, pk)
         if not upload.service_config:
             raise Http404
-        requested_persona(request, upload.service_config, "review_reservations", "manage_resources", "manage_data")
+        requested_persona(request, upload.service_config, "manage_resources", "manage_data")
         data = request.data if isinstance(request.data, dict) else {}
         title = data.get("title")
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 40:
@@ -164,6 +164,7 @@ class ServiceView(SessionView):
         if not upload.service_config:
             raise Http404
         ensure_imported(upload)
+        settle_service(upload)
         return Response(service_payload(upload))
 
 

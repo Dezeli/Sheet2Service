@@ -38,7 +38,7 @@ class GenerateApiTests(APITestCase):
         post_message.assert_called_once()
         self.assertEqual(generated.data["landing"], "booker")
         self.assertEqual(generated.data["counts"], {"resources": 6, "slots": 0, "bookings": 10})
-        self.assertEqual([persona["id"] for persona in generated.data["service"]["personas"]], ["booker", "admin", "org_manager"])
+        self.assertEqual([persona["id"] for persona in generated.data["service"]["personas"]], ["booker", "operator", "field", "admin"])
         service = self.client.get(self.base + "service/").data
         self.assertEqual(service["service"]["subject"], "국립자연휴양림 객실")
         self.assertEqual(service["service"]["booking"]["timeModel"], "date")

@@ -156,7 +156,7 @@ class BookingRulesApiTests(ServiceClientMixin, APITestCase):
         self.mutate(f"bookings/{first.data['id']}/unlock/", {"password": "1234"})
         self.assertEqual(self.mutate(f"bookings/{first.data['id']}/", {"persona": "booker", "action": "cancel"}, "patch").status_code, 200)
         self.assertEqual(self.book(date=self.day.isoformat()).status_code, 201)
-        reopened = self.mutate(f"bookings/{first.data['id']}/", {"persona": "admin", "action": "reopen"}, "patch")
+        reopened = self.mutate(f"bookings/{first.data['id']}/", {"persona": "operator", "action": "reopen"}, "patch")
         self.assertEqual(reopened.status_code, 400)
         self.assertIn("다시 열 수 없습니다", reopened.data["detail"])
         self.assertEqual(Booking.objects.get(pk=first.data["id"]).status, "cancelled")
@@ -256,10 +256,10 @@ class PhoneIdentityTests(ServiceClientMixin, APITestCase):
 
     def test_reviewers_see_masked_numbers_in_lists_and_whole_ones_in_detail(self):
         created = self.book(phone="01012345678")
-        listed = self.client.get(self.base + "bookings/?persona=admin&q=5678").data
+        listed = self.client.get(self.base + "bookings/?persona=operator&q=5678").data
         self.assertEqual(listed["count"], 1)
         self.assertEqual(listed["bookings"][0]["phone"], "010-****-5678")
-        detail = self.client.get(self.base + f"bookings/{created.data['id']}/?persona=admin").data
+        detail = self.client.get(self.base + f"bookings/{created.data['id']}/?persona=operator").data
         self.assertEqual(detail["phone"], "010-1234-5678")
 
     def test_a_booking_needs_a_four_digit_pin_and_stores_only_its_hash(self):
@@ -319,4 +319,79 @@ class PhoneIdentityTests(ServiceClientMixin, APITestCase):
         self.assertEqual((edited.status_code, edited.data["party_size"], edited.data["purpose"]), (200, 4, "휠체어 1대"))
         self.assertIn("인원 2→4명", edited.data["events"][-1]["note"])
         self.assertEqual(self.mutate(path, {"persona": "booker", "action": "edit", "date": self.day}, "patch").status_code, 400)
-        self.assertEqual(self.mutate(path, {"persona": "admin", "action": "edit", "party_size": 1}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(path, {"persona": "operator", "action": "edit", "party_size": 1}, "patch").status_code, 400)
+
+
+class SettledScheduleTests(ServiceClientMixin, APITestCase):
+    """Items whose records share one period enrol into it; fees come from the records; free sheets have no payment desk."""
+    from .test_reservation_understanding import BOOKINGS as csv_data  # noqa: F401
+
+    def answer(self):
+        from .test_reservation_understanding import model_answer
+        return model_answer()
+
+    def test_a_shared_period_becomes_the_items_session_and_bookers_enrol_into_it(self):
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        from .models import Slot
+        from .reservation_service import settle_service
+        course = Resource.objects.filter(upload=self.upload, children__isnull=True).first()
+        free = Resource.objects.filter(upload=self.upload, children__isnull=True).exclude(pk=course.pk).first()
+        Booking.objects.filter(upload=self.upload).update(slot=None)
+        Slot.objects.filter(upload=self.upload).delete()
+        start = timezone.make_aware(datetime.combine(timezone.localdate() + timedelta(days=7), datetime.min.time())) + timedelta(hours=19)
+        for name in ("가", "나", "다", "라", "마"):  # a course: everyone on the same weeks, 19:00~21:00
+            Booking.objects.create(upload=self.upload, resource=course, booker=name, status="approved",
+                                   starts_at=start, ends_at=start + timedelta(days=30, hours=2), amount=0)
+        Booking.objects.create(upload=self.upload, resource=course, booker="바", status="approved", starts_at=start,
+                               ends_at=start + timedelta(hours=1), amount=0)
+        for hours in (1, 3):  # a room: every booking at its own time
+            Booking.objects.create(upload=self.upload, resource=free, booker="사", status="approved",
+                                   starts_at=start + timedelta(hours=hours), ends_at=start + timedelta(hours=hours + 1))
+        config = self.upload.service_config
+        config.pop("settled", None)
+        config["booking"].update(amountColumn=config["booking"].get("amountColumn") or 1, paymentColumn=config["booking"].get("paymentColumn") or 1)
+        self.upload.service_config = config
+        self.upload.save(update_fields=["service_config"])
+        config = settle_service(self.upload)
+        session = Slot.objects.get(upload=self.upload, resource=course)
+        self.assertEqual(session.time_slot, "19:00~21:00")
+        self.assertEqual(Booking.objects.filter(slot=session).count(), 5)
+        self.assertFalse(Slot.objects.filter(upload=self.upload, resource=free).exists())
+        self.assertNotIn("finance", [persona["id"] for persona in config["personas"]])  # every record is free
+        course.refresh_from_db()
+        self.assertEqual(course.attributes["이용료"], "무료")
+        body = {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "booker": "신청자", "resource_id": str(course.id),
+                "date": session.date.isoformat()}
+        self.assertIn("회차를 골라", self.mutate("bookings/", body).data["detail"])
+        enrolled = self.mutate("bookings/", {**body, "slot_id": str(session.id)})
+        self.assertEqual(enrolled.status_code, 201, enrolled.data)
+        self.assertEqual((enrolled.data["amount"], enrolled.data["payment"]), ("0", "무료"))
+        Slot.objects.filter(pk=session.pk).update(date=timezone.localdate() - timedelta(days=1))
+        self.assertIn("모집이 끝난", self.mutate("bookings/", {**body, "slot_id": str(session.id), "phone": "010-2222-3333"}).data["detail"])
+
+    def test_a_course_gets_a_session_per_term_and_an_event_one_per_showing(self):
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        from .models import Slot
+        from .reservation_service import _fixed_sessions
+        Booking.objects.filter(upload=self.upload).update(slot=None)
+        Slot.objects.filter(upload=self.upload).delete()
+        course, talk, room = list(Resource.objects.filter(upload=self.upload, children__isnull=True)[:3])
+        Booking.objects.filter(resource__in=[course, talk, room]).delete()
+        at = lambda day, hour: timezone.make_aware(datetime(2026, 3, 1) + timedelta(days=day, hours=hour))
+        for start in (0, 180):  # spring and autumn, 14:00~16:00 over ten weeks
+            for name in ("가", "나"):
+                Booking.objects.create(upload=self.upload, resource=course, booker=name, status="approved",
+                                       starts_at=at(start, 14), ends_at=at(start + 70, 16))
+        Booking.objects.create(upload=self.upload, resource=course, booker="다", status="approved", starts_at=at(360, 14), ends_at=at(430, 16))
+        for hour in (14, 19):  # a talk given twice in one day
+            for name in ("가", "나", "다"):
+                Booking.objects.create(upload=self.upload, resource=talk, booker=name, status="approved", starts_at=at(5, hour), ends_at=at(5, hour + 2))
+        for hour in (9, 11, 13, 15):  # a room: every booking at its own time
+            Booking.objects.create(upload=self.upload, resource=room, booker="라", status="approved", starts_at=at(7, hour), ends_at=at(7, hour + 1))
+        _fixed_sessions(self.upload)
+        self.assertEqual([slot.time_slot for slot in Slot.objects.filter(resource=course)], ["14:00~16:00"] * 3)
+        self.assertEqual(Slot.objects.filter(resource=talk).count(), 2)
+        self.assertFalse(Slot.objects.filter(resource=room).exists())
+        self.assertEqual(Booking.objects.filter(resource=course, slot__isnull=False).count(), 5)

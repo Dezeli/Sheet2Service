@@ -62,13 +62,13 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(mine["count"], 2)
         booking_id = created.data["id"]
         self.assertEqual(self.mutate(f"bookings/{booking_id}/", {"persona": "booker", "action": "approve"}, "patch").status_code, 400)
-        rejected = self.mutate(f"bookings/{booking_id}/", {"persona": "admin", "action": "reject"}, "patch")
+        rejected = self.mutate(f"bookings/{booking_id}/", {"persona": "operator", "action": "reject"}, "patch")
         self.assertEqual(rejected.status_code, 400)  # a reason is required
-        approved = self.mutate(f"bookings/{booking_id}/", {"persona": "admin", "action": "approve", "note": "확인"}, "patch")
+        approved = self.mutate(f"bookings/{booking_id}/", {"persona": "operator", "action": "approve", "note": "확인"}, "patch")
         self.assertEqual(approved.status_code, 200)
         self.assertEqual(approved.data["status"], "approved")
         self.assertEqual([event["to"] for event in approved.data["events"]], ["requested", "approved"])
-        self.assertEqual(self.mutate(f"bookings/{booking_id}/", {"persona": "admin", "action": "approve"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(f"bookings/{booking_id}/", {"persona": "operator", "action": "approve"}, "patch").status_code, 400)
         self.assertEqual(self.mutate(f"bookings/{booking_id}/", {"persona": "booker", "action": "cancel"}, "patch").status_code, 400)  # PIN first
         self.assertEqual(self.mutate(f"bookings/{booking_id}/unlock/", {"password": "1234"}).status_code, 200)
         cancelled = self.mutate(f"bookings/{booking_id}/", {"persona": "booker", "action": "cancel"}, "patch")
@@ -87,45 +87,64 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(self.client.get(url).data["service"]["title"], "상주 통합예약")
 
     def test_bulk_action_applies_where_it_fits_and_skips_the_rest(self):
-        waiting = [item["id"] for item in self.client.get(self.base + "bookings/?persona=admin&status=requested").data["bookings"]]
-        settled = self.client.get(self.base + "bookings/?persona=admin&status=approved").data["bookings"][0]["id"]
+        waiting = [item["id"] for item in self.client.get(self.base + "bookings/?persona=operator&status=requested").data["bookings"]]
+        settled = self.client.get(self.base + "bookings/?persona=operator&status=approved").data["bookings"][0]["id"]
         url = "bookings/bulk/"
         self.assertEqual(self.mutate(url, {"persona": "booker", "action": "approve", "ids": waiting}).status_code, 400)
-        self.assertEqual(self.mutate(url, {"persona": "admin", "action": "approve", "ids": []}).status_code, 400)
-        self.assertEqual(self.mutate(url, {"persona": "admin", "action": "reject", "ids": waiting}).status_code, 400)  # needs a reason
-        result = self.mutate(url, {"persona": "admin", "action": "approve", "ids": [*waiting, settled]})
+        self.assertEqual(self.mutate(url, {"persona": "operator", "action": "approve", "ids": []}).status_code, 400)
+        self.assertEqual(self.mutate(url, {"persona": "operator", "action": "reject", "ids": waiting}).status_code, 400)  # needs a reason
+        result = self.mutate(url, {"persona": "operator", "action": "approve", "ids": [*waiting, settled]})
         self.assertEqual(result.status_code, 200, result.data)
         self.assertEqual((result.data["done"], result.data["skipped"]), (2, 1))
         self.assertEqual(Booking.objects.filter(pk__in=waiting, status="approved").count(), 2)
         self.assertEqual(Booking.objects.get(pk=waiting[0]).events.count(), 1)
 
     def test_admin_list_filters_stats_and_imported_records(self):
-        everything = self.client.get(self.base + "bookings/?persona=admin").data
+        everything = self.client.get(self.base + "bookings/?persona=operator").data
         self.assertEqual(everything["count"], 10)
         self.assertTrue(all(item["imported"] for item in everything["bookings"]))
-        waiting = self.client.get(self.base + "bookings/?persona=admin&status=requested").data
+        waiting = self.client.get(self.base + "bookings/?persona=operator&status=requested").data
         self.assertEqual(waiting["count"], 2)
-        self.assertEqual(self.client.get(self.base + "bookings/?persona=admin&q=크낙새").data["count"], 3)
-        self.assertEqual(self.client.get(self.base + "bookings/?persona=admin&status=bogus").status_code, 400)
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=operator&q=크낙새").data["count"], 3)
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=operator&status=bogus").status_code, 400)
         self.assertEqual(self.client.get(self.base + "bookings/?persona=nobody").status_code, 400)
-        approved = self.mutate(f"bookings/{waiting['bookings'][0]['id']}/", {"persona": "admin", "action": "approve"}, "patch")
+        approved = self.mutate(f"bookings/{waiting['bookings'][0]['id']}/", {"persona": "operator", "action": "approve"}, "patch")
         self.assertEqual(approved.data["status"], "approved")
         self.assertEqual(approved.data["status_label"], "")
-        stats = self.client.get(self.base + "bookings/stats/?persona=admin").data
+        stats = self.client.get(self.base + "bookings/stats/?persona=operator").data
         self.assertEqual((stats["total"], stats["counts"]["requested"], stats["counts"]["approved"], stats["imported"]), (10, 1, 5, 10))
         self.assertEqual(stats["top_resources"][0]["count"], 3)
         self.assertEqual(set(stats["payments"]), {"paid", "unpaid", "unpaid_amount"})
 
-    def test_org_manager_sees_only_its_organization(self):
-        scopes = self.client.get(self.base + "bookings/scopes/?persona=org_manager").data
+    def test_each_duty_belongs_to_one_role(self):
+        personas = {persona["id"]: persona for persona in self.config["personas"]}
+        self.assertEqual(list(personas), ["booker", "operator", "field", "admin"])
+        owners = {}
+        for persona in personas.values():
+            for feature in persona["features"]:
+                self.assertNotIn(feature, owners, f"{feature} is both {owners.get(feature)}'s and {persona['id']}'s")
+                owners[feature] = persona["id"]
+        waiting = self.client.get(self.base + "bookings/?persona=operator&status=requested").data["bookings"][0]["id"]
+        self.assertEqual(self.mutate(f"bookings/{waiting}/", {"persona": "admin", "action": "approve"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(f"bookings/{waiting}/", {"persona": "field", "action": "approve"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate(f"bookings/{waiting}/", {"persona": "operator", "action": "mark_paid"}, "patch").status_code, 400)
+        self.assertEqual(self.mutate("resources/", {"persona": "operator", "name": "새 객실"}).status_code, 400)
+        approved = self.mutate(f"bookings/{waiting}/", {"persona": "operator", "action": "approve"}, "patch")
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(self.mutate(f"bookings/{waiting}/", {"persona": "operator", "action": "check_in"}, "patch").status_code, 400)  # the field's
+        self.assertEqual(self.mutate(f"bookings/{waiting}/", {"persona": "field", "action": "check_in"}, "patch").data["status"], "in_use")
+        self.assertEqual(self.mutate("service/", {"persona": "operator", "title": "새 이름"}, "patch").status_code, 400)
+
+    def test_operator_sees_only_its_organization(self):
+        scopes = self.client.get(self.base + "bookings/scopes/?persona=operator").data
         self.assertEqual((scopes["label"], scopes["values"]), ("기관명", ["변산 자연휴양림", "유명산 자연휴양림"]))
-        self.assertEqual(self.client.get(self.base + "bookings/?persona=org_manager").status_code, 400)
-        scoped = self.client.get(self.base + "bookings/?persona=org_manager&scope=변산 자연휴양림").data
+        self.assertEqual(self.client.get(self.base + "bookings/?persona=operator").data["count"], 10)  # the part is optional
+        scoped = self.client.get(self.base + "bookings/?persona=operator&scope=변산 자연휴양림").data
         self.assertEqual(scoped["count"], 5)
         self.assertTrue(all(item["resource"]["path"].startswith("변산") for item in scoped["bookings"]))
-        self.assertEqual(self.client.get(self.base + "bookings/stats/?persona=org_manager&scope=변산 자연휴양림").data["total"], 5)
+        self.assertEqual(self.client.get(self.base + "bookings/stats/?persona=operator&scope=변산 자연휴양림").data["total"], 5)
         booking = scoped["bookings"][0]["id"]
-        self.assertEqual(self.mutate(f"bookings/{booking}/", {"persona": "org_manager", "action": "complete"}, "patch").status_code,
+        self.assertEqual(self.mutate(f"bookings/{booking}/", {"persona": "operator", "action": "complete"}, "patch").status_code,
                          200 if scoped["bookings"][0]["status"] in ("approved", "in_use") else 400)
 
     def test_resource_management_create_rename_and_deactivate(self):
@@ -168,7 +187,7 @@ class CatalogApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": future(8), "end_date": future(9), "booker": "손님7"}).status_code, 201)
         past = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "resource_id": str(igloo.id), "date": "2020-01-01", "end_date": "2020-01-02", "booker": "옛날"})
         self.assertEqual(past.status_code, 400)
-        self.assertEqual(self.client.get(self.base + "bookings/stats/?persona=admin").data["new"], 6)
+        self.assertEqual(self.client.get(self.base + "bookings/stats/?persona=operator").data["new"], 6)
 
 
 class SlotsApiTests(ServiceClientMixin, APITestCase):
@@ -181,11 +200,12 @@ class SlotsApiTests(ServiceClientMixin, APITestCase):
         slots = self.client.get(self.base + "slots/").data
         self.assertEqual(slots["count"], 6)
         slot = Slot.objects.get(upload=self.upload, imported_count=17)
+        Slot.objects.filter(pk=slot.pk).update(date=date.fromisoformat(future(5)))  # a session still to come
         updated = self.mutate(f"slots/{slot.id}/", {"persona": "admin", "capacity": 18}, "patch")
         self.assertEqual(updated.data["remaining"], 1)
         booked = self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "참가자"})
         self.assertEqual(booked.status_code, 201, booked.data)
-        self.assertEqual((booked.data["time_slot"], booked.data["date"]), ("오전10시~12시", "2026-04-16"))
+        self.assertEqual((booked.data["time_slot"], booked.data["date"]), ("오전10시~12시", future(5)))
         self.assertEqual(self.mutate("bookings/", {"persona": "booker", "password": "1234", "phone": "010-1234-5678", "slot_id": str(slot.id), "booker": "늦은 참가자"}).status_code, 400)
         listed = self.client.get(self.base + f"slots/?resource={slot.resource_id}").data["slots"]
         self.assertEqual(next(item for item in listed if item["id"] == str(slot.id))["remaining"], 0)
@@ -210,10 +230,22 @@ class SlotsApiTests(ServiceClientMixin, APITestCase):
         card = next(item for item in listed if item["id"] == str(top.id))["summary"]
         self.assertEqual(card["next_slot"]["id"], made.data["id"])
         self.assertEqual((card["open_slots"], card["next_slot"]["remaining"]), (1, 20))
-        self.assertEqual(set(card), {"leaves", "booked", "recent", "upcoming", "next_slot", "open_slots"})
+        self.assertEqual(set(card), {"leaves", "booked", "recent", "upcoming", "next_slot", "open_slots", "slots"})
         self.assertNotIn("summary", self.client.get(self.base + "resources/").data["resources"][0])
         self.assertEqual(self.client.get(self.base + "resources/?size=10").data["size"], 10)
         self.assertEqual(self.client.get(self.base + "resources/?size=7").data["size"], 20)
+
+
+    def test_items_whose_sessions_are_all_past_say_so_and_come_last(self):
+        Slot.objects.filter(upload=self.upload).update(date=date(2020, 1, 1))
+        listed = self.client.get(self.base + "resources/?summary=1").data["resources"]
+        self.assertTrue(all(item["closed"] for item in listed))
+        last = listed[-1]
+        leaf = Resource.objects.filter(upload=self.upload, path__startswith=last["path"]).filter(children__isnull=True).first()
+        Slot.objects.create(upload=self.upload, resource=leaf, date=date.fromisoformat(future(5)), time_slot="오전", capacity=10)
+        listed = self.client.get(self.base + "resources/?summary=1").data["resources"]
+        self.assertEqual((listed[0]["id"], listed[0]["closed"]), (last["id"], False))  # open again, so first
+        self.assertTrue(all(item["closed"] for item in listed[1:]))
 
 
 class PaymentApiTests(ServiceClientMixin, APITestCase):
@@ -275,7 +307,7 @@ class ScheduleApiTests(ServiceClientMixin, APITestCase):
         # the imported 2026-03-03 stay is already checked out, so it is not a conflict; two live bookings are
         for name in ("겹침1", "겹침2"):
             Booking.objects.create(upload=self.upload, resource=room, date=date(2026, 3, 5), status="approved", booker=name)
-        week = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2026-03-02&days=7").data
+        week = self.client.get(self.base + "bookings/schedule/?persona=operator&from=2026-03-02&days=7").data
         self.assertEqual(week["days"][0], "2026-03-02")
         row = next(item for item in week["resources"] if item["id"] == str(room.id))
         self.assertEqual(len(row["days"]["2026-03-03"]), 1)
@@ -283,11 +315,11 @@ class ScheduleApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(row["conflicts"], {"2026-03-05": 1})  # capacity defaults to one
         self.assertEqual(week["conflict_total"], 1)
         self.assertEqual(week["conflicts"][0]["name"], "우럭")
-        only = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2026-03-02&days=7&conflicts_only=1").data
+        only = self.client.get(self.base + "bookings/schedule/?persona=operator&from=2026-03-02&days=7&conflicts_only=1").data
         self.assertEqual([item["name"] for item in only["resources"]], ["우럭"])
         self.assertEqual(self.client.get(self.base + "bookings/schedule/?persona=booker").status_code, 400)
-        self.assertEqual(self.client.get(self.base + "bookings/schedule/?persona=org_manager&from=2026-03-02").status_code, 400)
-        scoped = self.client.get(self.base + "bookings/schedule/?persona=org_manager&from=2026-03-02&scope=유명산 자연휴양림").data
+        self.assertEqual(self.client.get(self.base + "bookings/schedule/?persona=operator&from=2026-03-02").status_code, 200)  # the part is optional
+        scoped = self.client.get(self.base + "bookings/schedule/?persona=operator&from=2026-03-02&scope=유명산 자연휴양림").data
         self.assertTrue(all(item["path"].startswith("유명산") for item in scoped["resources"]))
 
 
@@ -299,7 +331,7 @@ class ResourceMonthTests(ServiceClientMixin, APITestCase):
 
     def test_one_resource_over_a_month(self):
         room = Resource.objects.get(upload=self.upload, path="변산 자연휴양림 / 우럭")
-        month = self.client.get(self.base + f"bookings/schedule/?persona=admin&from=2026-03-01&days=31&resource={room.id}").data
+        month = self.client.get(self.base + f"bookings/schedule/?persona=operator&from=2026-03-01&days=31&resource={room.id}").data
         self.assertEqual([item["id"] for item in month["resources"]], [str(room.id)])
         self.assertEqual(len(month["days"]), 31)
         self.assertIn("2026-03-03", month["resources"][0]["days"])
@@ -329,10 +361,14 @@ class BusiestFirstTests(ServiceClientMixin, APITestCase):
         quiet = Resource.objects.get(upload=self.upload, path="유명산 자연휴양림 / 소나무")
         for name in ("가", "나", "다"):
             Booking.objects.create(upload=self.upload, resource=quiet, date=date(2026, 3, 4), status="approved", booker=name)
-        week = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2026-03-02&days=7").data
+        week = self.client.get(self.base + "bookings/schedule/?persona=operator&from=2026-03-02&days=7").data
         counts = [row["count"] for row in week["resources"]]
         self.assertEqual(counts, sorted(counts, reverse=True))
         self.assertEqual(week["resources"][0]["name"], "소나무")
         self.assertTrue(all(row["count"] > 0 for row in week["resources"]))
-        empty = self.client.get(self.base + "bookings/schedule/?persona=admin&from=2030-01-07&days=7").data
+        empty = self.client.get(self.base + "bookings/schedule/?persona=operator&from=2030-01-07&days=7").data
         self.assertEqual(empty["resources"], [])
+        self.assertEqual(empty["nearby"]["next"], None)
+        self.assertIsNotNone(empty["nearby"]["previous"])  # the latest booked date before an empty week
+        early = self.client.get(self.base + "bookings/schedule/?persona=operator&from=2000-01-03&days=7").data
+        self.assertIsNotNone(early["nearby"]["next"])
