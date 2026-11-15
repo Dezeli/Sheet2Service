@@ -6,7 +6,7 @@ from django.test import override_settings
 from rest_framework.test import APIClient, APITestCase
 
 from .models import Booking, ModelCall, Resource, Upload
-from .test_fixtures import isolated_media, upload_csv
+from .test_fixtures import ServiceClientMixin, isolated_media, upload_csv
 from .test_reservation_understanding import BOOKINGS, model_answer
 
 
@@ -47,7 +47,7 @@ class GenerateApiTests(APITestCase):
         self.assertEqual(Booking.objects.filter(upload=self.upload, status="requested").count(), 2)
         self.assertEqual(ModelCall.objects.get().status, ModelCall.Status.SUCCEEDED)
         self.assertTrue(self.client.get(self.base + "generate/").data["already_generated"])
-        self.assertEqual(APIClient().get(self.base + "service/").status_code, 404)
+        self.assertEqual(APIClient().get(self.base + "service/").status_code, 200)  # a built service is shared by its link
 
     @patch("uploads.claude._post_message")
     def test_failed_call_leaves_no_service(self, post_message):
@@ -57,3 +57,32 @@ class GenerateApiTests(APITestCase):
         self.assertIsNone(Upload.objects.get(pk=self.upload.pk).service_config)
         self.assertEqual(self.client.get(self.base + "service/").status_code, 404)
         self.assertEqual(ModelCall.objects.get().status, ModelCall.Status.FAILED)
+
+
+class SharingAndGenerationPinTests(ServiceClientMixin, APITestCase):
+    """An upload is private until built; a built service opens by its link; a set generation code guards Claude."""
+    csv_data = BOOKINGS
+
+    def answer(self):
+        return model_answer()
+
+    def test_an_unbuilt_upload_stays_private_and_a_built_one_is_shared(self):
+        draft = Upload.objects.create(session_key="someone-else", original_name="draft.csv", file_type="csv", size=1,
+                                      analysis=self.upload.analysis)
+        self.assertEqual(self.client.get(f"/api/uploads/{draft.pk}/").status_code, 404)
+        self.assertEqual(APIClient().get(self.base + "service/").status_code, 200)
+
+    def test_a_set_generation_code_is_required_before_calling_claude(self):
+        from unittest.mock import patch as patched
+        from django.core.cache import cache
+        cache.clear()
+        with patched.dict("os.environ", {"SHEET2SERVICE_GENERATION_PIN": "2468"}):
+            self.assertTrue(self.client.get(self.base + "generate/").data["requires_pin"])
+            body = {"approved": True, "approval_note": "test"}
+            self.assertIn("생성 번호", self.mutate("generate/", body).data["detail"])
+            self.assertIn("생성 번호", self.mutate("generate/", {**body, "pin": "1111"}).data["detail"])
+            for _ in range(4):
+                self.mutate("generate/", {**body, "pin": "0000"})
+            self.assertIn("10분", self.mutate("generate/", {**body, "pin": "2468"}).data["detail"])
+        cache.clear()
+        self.assertFalse(self.client.get(self.base + "generate/").data["requires_pin"])

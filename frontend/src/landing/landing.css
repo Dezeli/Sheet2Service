@@ -173,3 +173,6 @@ footer.closing .close__word { line-height: 1.04; padding-top: .04em; overflow: v
 @media (max-width: 639px) { .hero--centred .pill { justify-self: stretch; justify-content: center; } }
 @media (min-width: 640px) and (max-width: 1023px) { #rules .wrap > .grid .panel { --p-h: min(760px, calc(100svh - 340px)); } }
 @media (min-width: 1024px) { #rules .panel > .ui { zoom: 1.5; } }
+.lp-dialog__pin { display: grid; gap: 6px; margin: 4px 0 12px; font-size: .9rem; font-weight: 600; }
+.lp-dialog__pin input { width: 160px; height: 46px; padding: 0 14px; border: 1px solid #c9d3d8; border-radius: 10px; font-size: 1.3rem; letter-spacing: .5em; text-align: center; }
+.lp-dialog__pin small { font-weight: 400; font-size: .8rem; color: #5d6b72; }

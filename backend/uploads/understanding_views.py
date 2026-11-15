@@ -8,7 +8,7 @@ from .claude import InferenceError
 from .reservation_understanding import UnderstandingError, summary_lines
 from .reservation_understanding_request import (fingerprint, run_understanding, understanding_approval_summary,
                                                 understanding_request_body)
-from .views import SessionView, owned
+from .views import SessionView, check_generation_pin, owned
 
 
 class UnderstandingView(SessionView):
@@ -33,6 +33,7 @@ class UnderstandingView(SessionView):
         note = data.get("approval_note")
         if not isinstance(note, str) or not note.strip():
             raise ValidationError({"detail": "승인 기록 문구가 필요합니다."})
+        check_generation_pin(request, data)
         try:
             body = understanding_request_body(upload.analysis, file_name=upload.original_name)
         except ValueError as exc:

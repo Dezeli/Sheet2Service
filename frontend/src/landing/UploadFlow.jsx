@@ -6,7 +6,8 @@ import { api } from '../booking/api.js';
 const OFFLINE = '서버에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.';
 
 /** The approval step before the one Claude call: what is sent, how often, then the button that sends it. */
-function GenerateDialog({ file, summary, busy, error, canRetry, onRetry, onConfirm, onClose }) {
+function GenerateDialog({ file, summary, busy, error, canRetry, onRetry, onConfirm, onClose, pin, onPin }) {
+  const needsPin = Boolean(summary?.requires_pin);
   const dialog = useRef(null);
   useEffect(() => {
     const element = dialog.current;
@@ -27,10 +28,15 @@ function GenerateDialog({ file, summary, busy, error, canRetry, onRetry, onConfi
       {busy && <span className="lp-dialog__spin" role="status" aria-label="처리 중" />}
     </div>
     <p id="generate-purpose">컬럼 분석과 예시 행만 Claude에 보내 무엇을 누가 예약하는지 읽고, 예약자 화면과 관리자 화면을 만듭니다. Claude는 한 번 호출합니다.</p>
+    {needsPin && <label className="lp-dialog__pin">생성 번호 4자리
+      <input type="password" inputMode="numeric" maxLength={4} autoComplete="off" autoFocus value={pin} disabled={busy}
+        onChange={(event) => onPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+        onKeyDown={(event) => { if (event.key === 'Enter' && pin.length === 4) onConfirm(); }} />
+      <small>이 사이트를 운영하는 사람에게 받은 번호입니다.</small></label>}
     {error && <p className="lp-dialog__error" role="alert">{error}</p>}
     <div className="lp-dialog__actions">
       {canRetry && <button type="button" className="btn btn--secondary" disabled={busy} onClick={onRetry}>다시 시도</button>}
-      <button type="button" className="btn btn--primary" disabled={busy || !summary} onClick={onConfirm}>{busy && summary ? '만드는 중…' : '서비스 만들기'}</button>
+      <button type="button" className="btn btn--primary" disabled={busy || !summary || (needsPin && pin.length !== 4)} onClick={onConfirm}>{busy && summary ? '만드는 중…' : '서비스 만들기'}</button>
     </div>
   </dialog>;
 }
@@ -46,6 +52,7 @@ export default function UploadFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [pin, setPin] = useState('');
 
   async function start(files) {
     if (working.current) return;
@@ -80,15 +87,15 @@ export default function UploadFlow() {
       await api(`/api/uploads/${upload.id}/generate/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
         body: JSON.stringify({ approved: true, request_fingerprint: summary.request_fingerprint,
-          approval_note: `생성 확인 창의 서비스 만들기 버튼으로 ${summary.model} 1회 호출 승인` }),
+          approval_note: `생성 확인 창의 서비스 만들기 버튼으로 ${summary.model} 1회 호출 승인`, ...(summary.requires_pin ? { pin } : {}) }),
       });
       window.location.assign(`/${upload.id}/summary`);
-    } catch (caught) { setError(caught instanceof TypeError ? OFFLINE : caught.message); working.current = false; setBusy(false); }
+    } catch (caught) { setError(caught instanceof TypeError ? OFFLINE : caught.message); setPin(''); working.current = false; setBusy(false); }
   }
 
   function close() {
     if (working.current) return;
-    setFile(null); setUpload(null); setSummary(null); setError('');
+    setFile(null); setUpload(null); setSummary(null); setError(''); setPin('');
   }
 
   useEffect(() => {
@@ -115,6 +122,6 @@ export default function UploadFlow() {
     {dragging && <div className="lp-drop" aria-hidden="true"><span>CSV를 놓으면 올립니다</span></div>}
     {!file && error && <p className="lp-toast" role="alert">{error}</p>}
     {file && <GenerateDialog file={file} summary={summary} busy={busy} error={error} canRetry={Boolean(upload) && !summary}
-      onRetry={retry} onConfirm={generate} onClose={close} />}
+      onRetry={retry} onConfirm={generate} onClose={close} pin={pin} onPin={setPin} />}
   </>, document.body);
 }

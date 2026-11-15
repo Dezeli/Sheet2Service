@@ -1,5 +1,8 @@
+import hmac
+import os
 from pathlib import Path
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from django.http import FileResponse, Http404
@@ -45,7 +48,38 @@ def payload(upload):
 
 
 def owned(request, pk):
-    return get_object_or_404(Upload, pk=pk, session_key=request.session.session_key or "")
+    """An upload is its uploader's until a service is built from it. After that the link is the access:
+    Sheet2Service has no sign-in, and a service is meant to be shared with the people who use it."""
+    upload = get_object_or_404(Upload, pk=pk)
+    if upload.service_config or upload.session_key == (request.session.session_key or ""):
+        return upload
+    raise Http404
+
+
+GENERATION_TRIES = 5
+GENERATION_LOCK_SECONDS = 600
+
+
+def check_generation_pin(request, data):
+    """When the deployment sets SHEET2SERVICE_GENERATION_PIN, a Claude call needs that 4-digit code, so a public
+    site does not spend the key for every visitor. Five wrong codes lock this browser out for ten minutes."""
+    expected = os.environ.get("SHEET2SERVICE_GENERATION_PIN", "").strip()
+    if not expected:
+        return
+    if not request.session.session_key:
+        request.session.create()
+    key = f"generation-pin:{request.session.session_key}"
+    tries = cache.get(key, 0)
+    if tries >= GENERATION_TRIES:
+        raise ValidationError({"detail": "생성 번호를 여러 번 틀려 10분 동안 생성할 수 없습니다."})
+    if not hmac.compare_digest(str(data.get("pin") or ""), expected):
+        cache.set(key, tries + 1, GENERATION_LOCK_SECONDS)
+        raise ValidationError({"detail": "생성 번호가 맞지 않습니다."})
+    cache.delete(key)
+
+
+def generation_needs_pin():
+    return bool(os.environ.get("SHEET2SERVICE_GENERATION_PIN", "").strip())
 
 
 class BootstrapView(SessionView):
@@ -217,7 +251,7 @@ class GenerateView(SessionView):
             body = understanding_request_body(upload.analysis, file_name=upload.original_name)
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
-        return Response({**understanding_approval_summary(body), "requires_approval": True,
+        return Response({**understanding_approval_summary(body), "requires_approval": True, "requires_pin": generation_needs_pin(),
                          "already_generated": bool(upload.service_config)})
 
     def post(self, request, pk):
@@ -228,6 +262,7 @@ class GenerateView(SessionView):
         approval_note = data.get("approval_note")
         if not isinstance(approval_note, str) or not approval_note.strip():
             raise ValidationError({"detail": "승인 기록 문구가 필요합니다."})
+        check_generation_pin(request, data)
         try:
             body = understanding_request_body(upload.analysis, file_name=upload.original_name)
             if data.get("request_fingerprint") not in (None, fingerprint(body)):

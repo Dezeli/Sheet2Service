@@ -73,8 +73,8 @@ class BookingRecordsApiTests(ServiceClientMixin, APITestCase):
         self.assertEqual(self.mutate(f"bookings/{booking_id}/unlock/", {"password": "1234"}).status_code, 200)
         cancelled = self.mutate(f"bookings/{booking_id}/", {"persona": "booker", "action": "cancel"}, "patch")
         self.assertEqual(cancelled.data["status"], "cancelled")
-        other = APIClient(enforce_csrf_checks=True)
-        self.assertEqual(other.get(self.base + "bookings/?persona=booker").status_code, 404)
+        other = APIClient(enforce_csrf_checks=True)  # another browser opens the shared service, but none of these bookings
+        self.assertEqual(other.get(self.base + "bookings/?persona=booker").data["count"], 0)
         self.assertEqual(self.client.post(self.base + "bookings/", {"persona": "booker"}, format="json").status_code, 403)
 
     def test_the_service_title_defaults_to_its_subject_and_admins_rename_it(self):

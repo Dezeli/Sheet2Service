@@ -71,7 +71,7 @@ class NoticeApiTests(ServiceClientMixin, APITestCase):
         for values in ({}, {"title": None}, {"is_published": 0}, {"upload": str(self.upload.pk)}):
             self.assertEqual(self.mutate(path, values, "patch").status_code, 400)
         anonymous = APIClient(enforce_csrf_checks=True)
-        self.assertEqual(anonymous.get(self.base + "notices/?admin=1").status_code, 404)
+        self.assertEqual(anonymous.get(self.base + "notices/?admin=1").status_code, 200)  # shared by its link
         self.assertEqual(anonymous.patch(self.base + path, {"is_published": True}, format="json").status_code, 403)
 
     def test_service_without_the_feature_keeps_but_hides_notices(self):

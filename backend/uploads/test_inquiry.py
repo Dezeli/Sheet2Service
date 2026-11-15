@@ -61,9 +61,9 @@ class InquiryTests(ServiceClientMixin, APITestCase):
 
     def test_session_and_upload_isolation(self):
         created = self.mutate("", {"author": "홍길동", "is_private": False, "title": "Private", "body": "Details"})
-        other = APIClient()
-        self.assertEqual(other.get(self.base).status_code, 404)
-        self.assertEqual(other.get(self.base + "stats/").status_code, 404)
+        other = APIClient()  # a built service is shared by its link
+        self.assertEqual(other.get(self.base).status_code, 200)
+        self.assertEqual(other.get(self.base + "stats/").status_code, 200)
         unrelated = Upload.objects.create(session_key=self.upload.session_key, original_name="other.csv",
                                           file_type="csv", size=1, analysis=self.upload.analysis, managed=True,
                                           service_config=self.upload.service_config)

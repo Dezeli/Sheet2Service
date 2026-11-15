@@ -1,0 +1,63 @@
+# Production run on this machine, reached through a Cloudflare Tunnel (no port forwarding).
+# Uses the same database volume as the development setup, so existing services carry over;
+# stop the development stack first:  docker compose down
+#
+#   docker compose -f compose.prod.yaml up -d --build            # site on http://localhost:8080
+#   docker compose -f compose.prod.yaml --profile tunnel up -d   # also open it to the internet (deploy/cloudflared/)
+name: sheet2service
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Copy .env.production.example to .env.production and run with --env-file .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    # one process keeps the in-memory lockouts (wrong PINs) in one place; threads serve visitors in parallel
+    command: sh -c "python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 8 --timeout 180"
+    volumes:
+      - ./backend/media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - backend
+
+  # A locally managed tunnel (made with the cloudflared CLI, no Zero Trust sign-up): its credentials and
+  # config.yml live in deploy/cloudflared/, which is never committed.
+  tunnel:
+    image: cloudflare/cloudflared:2026.11.0
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./deploy/cloudflared:/etc/cloudflared:ro
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:

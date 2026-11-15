@@ -54,3 +54,27 @@ docker compose exec frontend npm run build
 ## 작업 규칙
 
 커밋 전 변경 내용과 메시지를 제안하고 사용자 승인을 받습니다. AI 작성자·공동 작성자 표기는 추가하지 않습니다. 이후 기능 작업은 필요에 따라 브랜치를 분리합니다.
+
+## Running it for others (this machine + Cloudflare Tunnel)
+
+`compose.prod.yaml` runs the production stack (gunicorn, the built screens behind nginx) on this machine and,
+with the `tunnel` profile, opens it to the internet through a Cloudflare Tunnel, so no port forwarding is needed.
+It shares the development database volume, so services made during development carry over.
+
+1. `cp .env.production.example .env.production` and fill it in: a new secret key, the public address in
+   `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`, the same database values as `.env`, the Claude key,
+   and `SHEET2SERVICE_GENERATION_PIN` (4 digits asked before every Claude call; empty asks nothing).
+2. Make the tunnel with the cloudflared CLI (no Zero Trust sign-up or card), once the domain is Active in
+   Cloudflare. Its files stay in `deploy/cloudflared/` (never committed):
+   - `docker run --rm -v "$PWD/deploy/cloudflared:/home/nonroot/.cloudflared" cloudflare/cloudflared:2026.11.0 tunnel login`
+     and open the printed link to authorise the domain
+   - the same image with `tunnel create sheet2service`, then `tunnel route dns sheet2service <address>`
+   - `deploy/cloudflared/config.yml`: `tunnel: <id>`, `credentials-file: /etc/cloudflared/<id>.json`, and an ingress
+     rule sending the address to `http://web:80` (then `http_status:404` for anything else)
+3. Stop development (`docker compose down`), then:
+   `docker compose -f compose.prod.yaml --env-file .env.production --profile tunnel up -d --build`
+4. Keep the machine awake (System Settings > Energy, or `caffeinate -dis`) and Docker Desktop starting at login;
+   the containers restart on their own.
+
+Anyone with a service's link can use it, in every role (there is no sign-in). An upload stays private to its
+uploader until a service is built from it.
